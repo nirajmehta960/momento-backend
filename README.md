@@ -1,145 +1,249 @@
 # Momento Backend
 
-Backend API for the Momento Social Network, built with Node.js, Express, and MongoDB.
+![Momento](https://img.shields.io/badge/Momento-Social%20Network-6366f1)
+![Node.js](https://img.shields.io/badge/Node.js-18+-339933?logo=node.js)
+![Express](https://img.shields.io/badge/Express-5-000000?logo=express)
+![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose-47A248?logo=mongodb)
+![Socket.io](https://img.shields.io/badge/Socket.io-4-010101?logo=socket.io)
 
-## Overview
+**REST API and real-time server for the Momento social network.**
 
-The backend exposes a RESTful API for authentication, posts, reviews, follows, saves, notifications, external content, and admin workflows.  
-It follows a modular layered architecture: each feature has its own `schema.js`, `model.js`, `dao.js`, and `routes.js`.
+Momento Backend is the API server for the Momento social network. It exposes REST endpoints for auth, users, posts, saves, follows, reviews, notifications, conversations, Momento AI chat, and external content (Unsplash). It uses Express-session for auth, MongoDB/Mongoose for persistence, and Socket.io for real-time messaging and live updates (likes, follows, notifications).
 
-## Tech Stack
-
-- Node.js, Express.js
-- MongoDB with Mongoose
-- express-session for session-based auth
-- bcryptjs for password hashing
-- Multer for file uploads
-- UUID for identifiers
-- Axios for external API calls (Unsplash)
-- CORS for cross-origin access
+---
 
 ## Features
 
-### Authentication and Users
+### Authentication & Users
 
-- Register and sign in with email and password
-- Session-based authentication with secure cookies
-- Role-based access control (USER, ADMIN)
-- Update profile details and profile image
-- Admin endpoints to list and delete users
+- **Auth** – Sign up, sign in (email or username), sign out. Session-based auth with secure cookies; bcrypt password hashing.
+- **Roles** – USER and ADMIN. Role checks on admin routes.
+- **Users** – Get/update profile, upload profile image (base64/multer), list users, delete account. Admin: list all users, delete any user (except self).
 
-### Posts and Social Graph
+### Posts & Social Graph
 
-- Create, update, and delete posts with image uploads
-- Fetch posts by recency, by user, and by filters (latest, oldest, most liked, most reviewed)
-- Search posts by caption, location, or tags
-- Personalized feed endpoint (posts from followed users + own posts)
-- Get posts liked by a user
-- Like and unlike posts
-- Save and unsave posts and fetch saved posts
-- Follow and unfollow users, and fetch followers and following
+- **Posts** – Create, update, delete posts with image upload. List by recency, user, filters (latest, oldest, most liked, most reviewed). Search by caption, location, tags. Personalized feed (followed users + own).
+- **Likes & Saves** – Like/unlike posts, save/unsave, fetch saved posts and liked posts.
+- **Follows** – Follow/unfollow users; followers/following lists; “messagable” users (mutual follow) for DMs.
 
-### Reviews and Notifications
+### Reviews & Notifications
 
-- Create, update, and delete reviews for internal posts and external Unsplash content
-- Fetch reviews by post or external content identifier
-- Notification system for likes, follows, and reviews, including unread counts and mark-as-read endpoints
+- **Reviews** – CRUD for post reviews and external (Unsplash) content reviews. Star ratings and comments.
+- **Notifications** – Create notifications for likes, follows, reviews. Unread count, mark read, mark all read, delete.
 
-### External API Integration
+### Real-Time & AI
 
-- Unsplash search and details endpoints, used by the frontend explore and details pages
+- **Socket.io** – User rooms (`user-<userId>`). Events: `authenticate`, `send-message`, `typing`, `mark-read`, `new-message`, `message-sent`, `conversation-updated`, `user-typing`, `messages-read`. Used for DMs and live UI updates (e.g. notification badge).
+- **Conversations** – REST: list partners, get messages with user, send message, mark read, unread count. Messages also sent/received via Socket.io.
+- **Momento AI** – OpenRouter-based chat. Endpoints: `GET /api/momento-ai` (history), `POST /api/momento-ai/chat` (send message). Handles text and optional image-generation-style requests; chat history stored in DB.
 
-## Project Structure (High Level)
+### External & Admin
+
+- **External** – Unsplash proxy: search and details for explore/details pages.
+- **Admin** – List users, delete users (except self), delete any post.
+
+### Infrastructure
+
+- **CORS** – Configurable origin (`CLIENT_URL`), credentials allowed.
+- **Compression** – Response compression.
+- **Caching** – Optional cache middleware for selected reads.
+- **Validation** – express-validator on routes. Centralized error handler and safe error responses.
+
+---
+
+## Tech Stack
+
+| Layer | Tech |
+| ----- | ----- |
+| **Runtime** | Node.js 18+ (ES modules) |
+| **Framework** | Express 5 |
+| **Database** | MongoDB, Mongoose |
+| **Auth** | express-session, bcryptjs |
+| **Uploads** | Multer, Sharp (image processing) |
+| **Real-time** | Socket.io |
+| **External** | Axios (Unsplash, OpenRouter) |
+| **Validation** | express-validator |
+
+---
+
+## Project Structure
 
 ```
-Users/           User accounts and auth
-Posts/           Post data
-Saves/           Saved posts
-Follows/         Follow relationships
-Reviews/         Review data
-Notifications/   Notification records
-External/        Unsplash proxy routes
-middleware/      Auth and upload middleware
-index.js         Server bootstrap and configuration
+momento-backend/
+├── index.js                 # App bootstrap, Mongo connect, Express, Socket.io
+├── users/                   # User accounts, auth, profile
+│   ├── schema.js            # Mongoose schema
+│   ├── model.js             # Model export
+│   ├── dao.js               # DB operations
+│   └── routes.js            # Express routes
+├── posts/                   # Posts CRUD, like, feed, search
+├── saves/                   # Saved posts
+├── follows/                 # Follow graph, messagable users
+├── reviews/                 # Post & external reviews
+├── notifications/           # Notifications CRUD, read status
+├── conversations/           # DMs, message history
+├── momentoai/               # Momento AI chat (OpenRouter)
+├── external/                # Unsplash proxy
+├── middleware/
+│   ├── auth.js              # requireAuth, requireRole
+│   ├── uploadBase64.js      # Base64 image upload
+│   ├── validation.js        # Validation helpers
+│   ├── cache.js             # Cache middleware
+│   └── errorHandler.js      # Global error handling
+├── utils/
+│   ├── responseFormatter.js # Success/error responses
+│   ├── imageOptimizer.js    # Resize, base64 helpers
+│   ├── cache.js             # Cache keys/helpers
+│   └── idMapper.js          # ID normalization
+├── constants/
+│   └── errorMessages.js     # Error codes and messages
+└── package.json
 ```
 
-Each module contains:
+Each feature module uses:
 
-- `schema.js` – Mongoose schema
-- `model.js` – Mongoose model
-- `dao.js` – database operations
-- `routes.js` – Express routes
+- **`schema.js`** – Mongoose schema.
+- **`model.js`** – Mongoose model export.
+- **`dao.js`** – Data access (create, read, update, delete). Used by routes and Socket.io handlers.
+- **`routes.js`** – Express routes; some receive `io` for real-time emits (e.g. posts, follows, reviews, notifications).
 
-## Getting Started
+**`index.js`** wires Express, session, CORS, compression, JSON body parser, mounts all route modules, sets up Socket.io (CORS, auth, `send-message`, `typing`, `mark-read`, etc.), and registers error/404 handlers.
+
+---
+
+## Quick Start
 
 ### Prerequisites
 
-- Node.js 18 or higher
-- MongoDB (local or MongoDB Atlas)
+- **Node.js** 18+
+- **MongoDB** (local or [MongoDB Atlas](https://www.mongodb.com/cloud/atlas))
 
 ### Installation
 
-```bash
-git clone https://github.com/nirajmehta960/momento-backend
-cd momento-backend
-npm install
-```
+1. **Clone and install**
 
-Create `.env`:
+   ```bash
+   git clone https://github.com/nirajmehta960/momento-backend.git
+   cd momento-backend
+   npm install
+   ```
 
-```env
-PORT=4000
-DATABASE_CONNECTION_STRING=mongodb://127.0.0.1:27017/momento
-SESSION_SECRET=your-secret-key-here
-CLIENT_URL=http://localhost:3000
-SERVER_URL=http://localhost:4000
-UNSPLASH_ACCESS_KEY=your-unsplash-access-key
-SERVER_ENV=development
-```
+2. **Environment**
 
-Start MongoDB locally or configure the connection string for MongoDB Atlas, then run:
+   Create `.env` in the project root:
 
-```bash
-npm run dev
-```
+   ```env
+   PORT=4000
+   DATABASE_CONNECTION_STRING=mongodb://127.0.0.1:27017/momento
+   SESSION_SECRET=your-secret-key-here
+   CLIENT_URL=http://localhost:3000
+   SERVER_URL=http://localhost:4000
+   SERVER_ENV=development
+   UNSPLASH_ACCESS_KEY=your-unsplash-access-key
+   OPENROUTER_API_KEY=your-openrouter-api-key
+   ```
 
-The server listens on `http://localhost:4000` by default.
+   - Use a real MongoDB connection string (local or Atlas).
+   - `CLIENT_URL` must match the frontend origin (CORS and cookies).
+   - `OPENROUTER_API_KEY` required for Momento AI. Get keys from [Unsplash API](https://unsplash.com/developers) and [OpenRouter](https://openrouter.ai/).
+
+3. **Run**
+
+   ```bash
+   npm run dev
+   ```
+
+   Server runs at [http://localhost:4000](http://localhost:4000). API base: `http://localhost:4000/api`.
+
+---
 
 ## Environment Variables
 
-| Variable                     | Description                      |
-| ---------------------------- | -------------------------------- |
-| `PORT`                       | Server port                      |
-| `DATABASE_CONNECTION_STRING` | MongoDB connection string        |
-| `SESSION_SECRET`             | Session secret                   |
-| `CLIENT_URL`                 | Frontend origin (CORS and cookies) |
-| `SERVER_URL`                 | Server URL for image URLs        |
-| `UNSPLASH_ACCESS_KEY`        | Unsplash API key                 |
-| `SERVER_ENV`                 | `development` or `production`    |
+| Variable | Description |
+| -------- | ----------- |
+| `PORT` | Server port (default `4000`) |
+| `DATABASE_CONNECTION_STRING` | MongoDB connection string |
+| `SESSION_SECRET` | Secret for express-session |
+| `CLIENT_URL` | Frontend origin (CORS, cookies) |
+| `SERVER_URL` | Base URL of this server (e.g. image URLs) |
+| `SERVER_ENV` | `development` or `production` |
+| `UNSPLASH_ACCESS_KEY` | Unsplash API key |
+| `OPENROUTER_API_KEY` | OpenRouter API key (Momento AI) |
+
+---
 
 ## Scripts
 
-- `npm run dev` – start in development with nodemon
-- `npm start` – start in production mode
+| Command | Description |
+| ------- | ----------- |
+| `npm run dev` | Start with nodemon |
+| `npm start` | Start production server |
 
-## Project Links
+---
 
-- Backend repository: [`momento-backend`](https://github.com/nirajmehta960/momento-backend)
-- Frontend repository: [`momento-frontend`](https://github.com/nirajmehta960/momento-frontend)
+## API Overview
 
-## Security and Error Handling
+| Area | Examples |
+| ---- | -------- |
+| **Auth** | `POST /api/users/signup`, `POST /api/users/signin`, `POST /api/users/signout`, `POST /api/users/profile` |
+| **Users** | `GET/PUT /api/users/:userId`, `POST /api/users/upload` |
+| **Posts** | `GET/POST /api/posts`, `GET/PUT/DELETE /api/posts/:postId`, `PUT /api/posts/:postId/like`, `GET /api/posts/search`, `GET /api/posts/user/:userId` |
+| **Saves** | `GET /api/saves/user/:userId`, `POST/DELETE /api/saves` |
+| **Follows** | `POST/DELETE /api/follows`, `GET /api/follows/followers|following|messagable/:userId` |
+| **Reviews** | `GET/POST /api/reviews`, `GET/PUT/DELETE /api/reviews/:reviewId`, `GET /api/reviews/post/:postId`, `GET /api/reviews/external/:id` |
+| **Notifications** | `GET /api/notifications`, `GET /api/notifications/unread-count`, `PUT /api/notifications/:id/read`, `PUT /api/notifications/read-all` |
+| **Conversations** | `GET /api/conversations`, `GET /api/conversations/:userId`, `POST /api/conversations/send`, `PUT /api/conversations/:userId/read`, `GET /api/conversations/unread-count` |
+| **Momento AI** | `GET /api/momento-ai`, `POST /api/momento-ai/chat` |
+| **External** | `GET /api/external/search`, `GET /api/external/details/:id` |
+| **Admin** | `GET /api/admin/users`, `DELETE /api/admin/posts/:postId`; user delete via `DELETE /api/users/:userId` |
 
-- Password hashing with bcryptjs
-- Session-based authentication with role checks at the route level
-- CORS configuration for the configured frontend origin
-- Multer-based file validation for uploads
-- Consistent HTTP status codes and safe error messages from all routes
+All JSON responses use a consistent shape; errors go through the global error handler.
+
+---
+
+## Security & Error Handling
+
+- Passwords hashed with bcryptjs.
+- Session-based auth; admin routes use `requireRole('ADMIN')`.
+- CORS restricted to `CLIENT_URL`; credentials enabled.
+- File uploads validated (multer base64 middleware).
+- Central error handler returns safe messages and appropriate HTTP status codes.
+
+---
+
+## Deployment
+
+Run on any Node.js host (Railway, Render, Fly.io, etc.):
+
+1. Set all env vars (especially `DATABASE_CONNECTION_STRING`, `SESSION_SECRET`, `CLIENT_URL`, `SERVER_URL`, `OPENROUTER_API_KEY`, `UNSPLASH_ACCESS_KEY`).
+2. Use `SERVER_ENV=production`; ensure `CLIENT_URL` and `SERVER_URL` use production URLs.
+3. Run `npm start` (or your process manager).
+
+---
+
+## Contributing
+
+1. Fork the repository.
+2. Create a feature branch (`git checkout -b feature/your-feature`).
+3. Commit changes (`git commit -m 'Add your feature'`).
+4. Push and open a Pull Request (`git push origin feature/your-feature`).
+
+Follow existing module structure (schema → model → dao → routes) and use the shared middleware and utils.
+
+---
 
 ## License
 
-ISC
+This project is licensed under the **MIT License** – you can use, copy, modify, merge, publish, distribute, sublicense, and sell copies, under the terms of the [MIT license](LICENSE). See [LICENSE](LICENSE) for the full text.
 
-## Notes
+---
 
-This backend is designed to be used together with the `momento-frontend` repository as part of an academic social network project.
+## Authors
 
+**Niraj Mehta** – [GitHub @nirajmehta960](https://github.com/nirajmehta960)
+
+---
+
+## Related
+
+- **Frontend:** [momento-frontend](https://github.com/nirajmehta960/momento-frontend)
