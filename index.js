@@ -5,6 +5,7 @@ import cors from "cors";
 import session from "express-session";
 import path from "path";
 import { fileURLToPath } from "url";
+import UserRoutes from "./Users/routes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -45,6 +46,8 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 // Route imports will be added as modules are created
 // import UserRoutes from "./Users/routes.js";
 // UserRoutes(app);
+
+UserRoutes(app);
 
 app.get("/", (req, res) => {
   res.send("Welcome to Momento Social Network API!");
