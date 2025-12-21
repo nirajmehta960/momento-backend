@@ -1,0 +1,189 @@
+import ReviewsDao from "./dao.js";
+import NotificationsDao from "../Notifications/dao.js";
+import PostsDao from "../Posts/dao.js";
+
+export default function ReviewRoutes(app) {
+  const dao = ReviewsDao();
+  const notificationsDao = NotificationsDao();
+  const postsDao = PostsDao();
+
+  // POST /api/reviews - Create a review (for post or external content)
+  // Body: { postId?, externalContentId?, review, rating? }
+  // Auth: Required
+  const createReview = async (req, res) => {
+    try {
+      const currentUser = req.session["currentUser"];
+      if (!currentUser) {
+        res.status(401).json({ message: "You must be logged in" });
+        return;
+      }
+
+      const { postId, externalContentId, review, rating } = req.body;
+
+      if (!review || review.trim() === "") {
+        res.status(400).json({ error: "Review text is required" });
+        return;
+      }
+
+      if (!postId && !externalContentId) {
+        res
+          .status(400)
+          .json({ error: "Either postId or externalContentId is required" });
+        return;
+      }
+
+      const reviewData = {
+        user: currentUser._id,
+        post: postId || null,
+        externalContentId: externalContentId || null,
+        review: review.trim(),
+        rating: rating || null,
+      };
+
+      const newReview = await dao.createReview(reviewData);
+      const populatedReview = await dao.findReviewById(newReview._id);
+
+      if (postId) {
+        try {
+          const post = await postsDao.findPostById(postId);
+          if (post && post.creator && post.creator._id !== currentUser._id) {
+            await notificationsDao.createNotification({
+              user: post.creator._id,
+              actor: currentUser._id,
+              type: "REVIEW",
+              post: postId,
+              review: newReview._id,
+            });
+          }
+        } catch (notifError) {}
+      }
+
+      res.json(populatedReview);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create review" });
+    }
+  };
+  app.post("/api/reviews", createReview);
+
+  // GET /api/reviews/post/:postId - Get all reviews for a post
+  // Auth: Not required
+  const getReviewsByPost = async (req, res) => {
+    try {
+      const { postId } = req.params;
+      if (!postId) {
+        res.status(400).json({ error: "Post ID is required" });
+        return;
+      }
+
+      const reviews = await dao.findReviewsByPost(postId);
+      res.json({ documents: reviews });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch reviews" });
+    }
+  };
+  app.get("/api/reviews/post/:postId", getReviewsByPost);
+
+  // GET /api/reviews/external/:externalContentId - Get reviews for external content
+  // Auth: Not required
+  const getReviewsByExternalContent = async (req, res) => {
+    try {
+      const { externalContentId } = req.params;
+      if (!externalContentId) {
+        res.status(400).json({ error: "External content ID is required" });
+        return;
+      }
+
+      const reviews = await dao.findReviewsByExternalContent(externalContentId);
+      res.json({ documents: reviews });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch reviews" });
+    }
+  };
+  app.get(
+    "/api/reviews/external/:externalContentId",
+    getReviewsByExternalContent
+  );
+
+  // PUT /api/reviews/:reviewId - Update review (only own reviews)
+  // Body: { review?, rating? }
+  // Auth: Required (must be review owner)
+  const updateReview = async (req, res) => {
+    try {
+      const { reviewId } = req.params;
+      const currentUser = req.session["currentUser"];
+      if (!currentUser) {
+        res.status(401).json({ message: "You must be logged in" });
+        return;
+      }
+
+      const existingReview = await dao.findReviewById(reviewId);
+      if (!existingReview) {
+        res.status(404).json({ message: "Review not found" });
+        return;
+      }
+
+      const reviewUserId = existingReview.user._id || existingReview.user;
+      if (reviewUserId !== currentUser._id) {
+        res
+          .status(403)
+          .json({ message: "You can only update your own reviews" });
+        return;
+      }
+
+      const { review, rating } = req.body;
+      const updateData = {};
+      if (review !== undefined) {
+        if (review.trim() === "") {
+          res.status(400).json({ error: "Review text cannot be empty" });
+          return;
+        }
+        updateData.review = review.trim();
+      }
+      if (rating !== undefined) {
+        updateData.rating = rating;
+      }
+
+      await dao.updateReview(reviewId, updateData);
+      const updatedReview = await dao.findReviewById(reviewId);
+      res.json(updatedReview);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update review" });
+    }
+  };
+  app.put("/api/reviews/:reviewId", updateReview);
+
+  // DELETE /api/reviews/:reviewId - Delete review (only own reviews)
+  // Auth: Required (must be review owner)
+  const deleteReview = async (req, res) => {
+    try {
+      const { reviewId } = req.params;
+      const currentUser = req.session["currentUser"];
+      if (!currentUser) {
+        res.status(401).json({ message: "You must be logged in" });
+        return;
+      }
+
+      const existingReview = await dao.findReviewById(reviewId);
+      if (!existingReview) {
+        res.status(404).json({ message: "Review not found" });
+        return;
+      }
+
+      const reviewUserId = existingReview.user._id || existingReview.user;
+      if (reviewUserId !== currentUser._id) {
+        res
+          .status(403)
+          .json({ message: "You can only delete your own reviews" });
+        return;
+      }
+
+      await dao.deleteReview(reviewId);
+      res.json({ message: "Review deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete review" });
+    }
+  };
+  app.delete("/api/reviews/:reviewId", deleteReview);
+
+  return app;
+}

@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import UserRoutes from "./Users/routes.js";
 import PostRoutes from "./Posts/routes.js";
 import FollowRoutes from "./Follows/routes.js";
+import ReviewRoutes from "./Reviews/routes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,6 +50,7 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 UserRoutes(app);
 PostRoutes(app);
 FollowRoutes(app);
+ReviewRoutes(app);
 
 app.get("/", (req, res) => {
   res.send("Welcome to Momento Social Network API!");
