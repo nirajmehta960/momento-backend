@@ -30,20 +30,9 @@ export default function PostRoutes(app) {
       const imageData = req.file.buffer.toString("base64");
       const imageMimeType = req.file.mimetype;
       const imageId = `post-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-      let serverUrl = process.env.SERVER_URL;
-      if (!serverUrl) {
-        // Fallback: construct from request if SERVER_URL not set
-        // Use X-Forwarded headers if available (Render proxy)
-        const protocol =
-          req.get("x-forwarded-proto") ||
-          req.protocol ||
-          (req.secure ? "https" : "http");
-        const host =
-          req.get("x-forwarded-host") ||
-          req.get("host") ||
-          `localhost:${process.env.PORT || 4000}`;
-        serverUrl = `${protocol}://${host}`;
-      }
+      const serverUrl =
+        process.env.SERVER_URL ||
+        `http://localhost:${process.env.PORT || 4000}`;
       const imageUrl = `${serverUrl}/api/images/post/${imageId}`;
 
       const tags = req.body.tags
@@ -234,14 +223,9 @@ export default function PostRoutes(app) {
         const imageData = req.file.buffer.toString("base64");
         const imageMimeType = req.file.mimetype;
         const imageId = `post-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-        let serverUrl = process.env.SERVER_URL;
-        if (!serverUrl) {
-          // Fallback: construct from request if SERVER_URL not set
-          const protocol = req.protocol || (req.secure ? "https" : "http");
-          const host =
-            req.get("host") || `localhost:${process.env.PORT || 4000}`;
-          serverUrl = `${protocol}://${host}`;
-        }
+        const serverUrl =
+          process.env.SERVER_URL ||
+          `http://localhost:${process.env.PORT || 4000}`;
         postUpdates.imageUrl = `${serverUrl}/api/images/post/${imageId}`;
         postUpdates.imageId = imageId;
         postUpdates.imageData = imageData;

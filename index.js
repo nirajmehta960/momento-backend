@@ -22,11 +22,6 @@ mongoose.connect(CONNECTION_STRING);
 
 const app = express();
 
-// Trust proxy for Render deployment (needed for X-Forwarded-* headers)
-if (process.env.SERVER_ENV !== "development") {
-  app.set("trust proxy", 1);
-}
-
 app.use(
   cors({
     credentials: true,
