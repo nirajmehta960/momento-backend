@@ -22,10 +22,20 @@ mongoose.connect(CONNECTION_STRING);
 
 const app = express();
 
+// CORS configuration - support multiple origins (comma-separated) or single origin
+const getCorsOrigin = () => {
+  const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+  // Support comma-separated origins for multiple frontend deployments
+  if (clientUrl.includes(",")) {
+    return clientUrl.split(",").map((url) => url.trim());
+  }
+  return clientUrl;
+};
+
 app.use(
   cors({
     credentials: true,
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: getCorsOrigin(),
   })
 );
 
@@ -46,8 +56,6 @@ if (process.env.SERVER_ENV !== "development") {
 app.use(session(sessionOptions));
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ limit: "5mb", extended: true }));
-
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Register routes
 UserRoutes(app);
