@@ -7,11 +7,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import UserRoutes from "./Users/routes.js";
 import PostRoutes from "./Posts/routes.js";
+import SaveRoutes from "./Saves/routes.js";
 import FollowRoutes from "./Follows/routes.js";
 import ReviewRoutes from "./Reviews/routes.js";
-import SaveRoutes from "./Saves/routes.js";
-import NotificationsRoutes from "./Notifications/routes.js";
 import ExternalRoutes from "./External/routes.js";
+import NotificationRoutes from "./Notifications/routes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,20 +22,10 @@ mongoose.connect(CONNECTION_STRING);
 
 const app = express();
 
-// CORS configuration - support multiple origins (comma-separated) or single origin
-const getCorsOrigin = () => {
-  const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
-  // Support comma-separated origins for multiple frontend deployments
-  if (clientUrl.includes(",")) {
-    return clientUrl.split(",").map((url) => url.trim());
-  }
-  return clientUrl;
-};
-
 app.use(
   cors({
     credentials: true,
-    origin: getCorsOrigin(),
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
   })
 );
 
@@ -57,20 +47,17 @@ app.use(session(sessionOptions));
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ limit: "5mb", extended: true }));
 
-// Register routes
 UserRoutes(app);
 PostRoutes(app);
+SaveRoutes(app);
 FollowRoutes(app);
 ReviewRoutes(app);
-SaveRoutes(app);
-NotificationsRoutes(app);
 ExternalRoutes(app);
+NotificationRoutes(app);
 
 app.get("/", (req, res) => {
   res.send("Welcome to Momento Social Network API!");
 });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
+app.listen(port);
