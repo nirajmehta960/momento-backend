@@ -1,4 +1,12 @@
 import UsersDao from "./dao.js";
+import PostsDao from "../Posts/dao.js";
+import ReviewsDao from "../Reviews/dao.js";
+import SavesDao from "../Saves/dao.js";
+import FollowsDao from "../Follows/dao.js";
+import NotificationsDao from "../Notifications/dao.js";
+import ReviewsModel from "../Reviews/model.js";
+import SavesModel from "../Saves/model.js";
+import FollowsModel from "../Follows/model.js";
 import upload from "../middleware/uploadBase64.js";
 import multer from "multer";
 import bcrypt from "bcryptjs";
@@ -6,6 +14,11 @@ import { requireRole } from "../middleware/auth.js";
 
 export default function UserRoutes(app) {
   const dao = UsersDao();
+  const postsDao = PostsDao();
+  const reviewsDao = ReviewsDao();
+  const savesDao = SavesDao();
+  const followsDao = FollowsDao();
+  const notificationsDao = NotificationsDao();
 
   // POST /api/users/signup - Create user account and sign in
   // Body: { username, email, password, name, bio }
@@ -302,6 +315,51 @@ export default function UserRoutes(app) {
         return;
       }
 
+      // Cascade delete: Delete all user-related data
+      // 1. Delete all posts by this user
+      const userPosts = await postsDao.findPostsByCreator(userId);
+      for (const post of userPosts) {
+        await postsDao.deletePost(post._id);
+      }
+
+      // 2. Delete all reviews by this user
+      const userReviews = await ReviewsModel.find({ user: userId });
+      for (const review of userReviews) {
+        await reviewsDao.deleteReview(review._id);
+      }
+
+      // 3. Delete all saves by this user
+      const userSaves = await SavesModel.find({ user: userId });
+      for (const save of userSaves) {
+        await SavesModel.deleteOne({ _id: save._id });
+      }
+
+      // 4. Delete all follows (both following and followers)
+      const userFollows = await FollowsModel.find({
+        $or: [{ follower: userId }, { following: userId }],
+      });
+      for (const follow of userFollows) {
+        await FollowsModel.deleteOne({ _id: follow._id });
+      }
+
+      // 5. Delete all notifications for this user
+      const userNotifications = await notificationsDao.findNotificationsByUser(
+        userId
+      );
+      for (const notification of userNotifications) {
+        await notificationsDao.deleteNotification(notification._id);
+      }
+
+      // 6. Remove user from likes arrays in posts
+      const allPosts = await postsDao.findAllPosts();
+      for (const post of allPosts) {
+        if (post.likes && post.likes.includes(userId)) {
+          const updatedLikes = post.likes.filter((id) => id !== userId);
+          await postsDao.likePost(post._id, updatedLikes);
+        }
+      }
+
+      // 8. Finally, delete the user
       if (currentUser._id === userId) {
         req.session.destroy();
       }
