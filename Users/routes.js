@@ -337,20 +337,6 @@ export default function UserRoutes(app) {
         return;
       }
       const imageBuffer = Buffer.from(user.imageData, "base64");
-      
-      // Set CORS headers explicitly for image serving
-      const origin = req.headers.origin;
-      const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
-      const allowedOrigins = clientUrl.includes(",") 
-        ? clientUrl.split(",").map(url => url.trim())
-        : [clientUrl];
-      
-      if (origin && allowedOrigins.includes(origin)) {
-        res.set("Access-Control-Allow-Origin", origin);
-      } else if (allowedOrigins.length === 1) {
-        res.set("Access-Control-Allow-Origin", allowedOrigins[0]);
-      }
-      res.set("Access-Control-Allow-Credentials", "true");
       res.set("Content-Type", user.imageMimeType || "image/jpeg");
       res.set("Cache-Control", "public, max-age=31536000, immutable");
       res.send(imageBuffer);
