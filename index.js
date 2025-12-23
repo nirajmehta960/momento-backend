@@ -22,6 +22,11 @@ mongoose.connect(CONNECTION_STRING);
 
 const app = express();
 
+// Trust proxy for Render deployment (needed for X-Forwarded-* headers)
+if (process.env.SERVER_ENV !== "development") {
+  app.set("trust proxy", 1);
+}
+
 app.use(
   cors({
     credentials: true,
@@ -46,6 +51,8 @@ if (process.env.SERVER_ENV !== "development") {
 app.use(session(sessionOptions));
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ limit: "5mb", extended: true }));
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 UserRoutes(app);
 PostRoutes(app);
