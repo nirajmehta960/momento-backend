@@ -7,6 +7,9 @@ import { requireRole } from "../middleware/auth.js";
 export default function UserRoutes(app) {
   const dao = UsersDao();
 
+  // POST /api/users/signup - Create user account and sign in
+  // Body: { username, email, password, name, bio }
+  // Auth: Not required
   const signup = async (req, res) => {
     try {
       const existingUser = await dao.findUserByUsername(req.body.username);
@@ -34,6 +37,9 @@ export default function UserRoutes(app) {
   };
   app.post("/api/users/signup", signup);
 
+  // POST /api/users/signin - Sign in user (email or username)
+  // Body: { email, password }
+  // Auth: Not required
   const signin = async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -81,6 +87,8 @@ export default function UserRoutes(app) {
   };
   app.post("/api/users/signin", signin);
 
+  // POST /api/users/signout - Sign out user (destroy session)
+  // Auth: Not required (safe to call even if not logged in)
   const signout = (req, res) => {
     try {
       req.session.destroy();
@@ -91,6 +99,8 @@ export default function UserRoutes(app) {
   };
   app.post("/api/users/signout", signout);
 
+  // POST /api/users/profile - Get current user from session
+  // Auth: Not required (returns null if not authenticated)
   const profile = (req, res) => {
     try {
       const currentUser = req.session["currentUser"];
@@ -105,6 +115,9 @@ export default function UserRoutes(app) {
   };
   app.post("/api/users/profile", profile);
 
+  // GET /api/users - Get all users (with optional filters)
+  // Query params: ?role=ADMIN, ?name=searchTerm
+  // Auth: Not required
   const findAllUsers = async (req, res) => {
     try {
       const { role, name } = req.query;
@@ -134,6 +147,8 @@ export default function UserRoutes(app) {
   };
   app.get("/api/users", findAllUsers);
 
+  // GET /api/users/:userId - Get user by ID
+  // Auth: Not required (email hidden unless own profile)
   const findUserById = async (req, res) => {
     try {
       const { userId } = req.params;
@@ -166,6 +181,9 @@ export default function UserRoutes(app) {
   };
   app.get("/api/users/:userId", findUserById);
 
+  // POST /api/users/upload - Upload profile image
+  // Body: FormData (file)
+  // Auth: Not required (but should be used after signup/signin)
   const uploadProfileImage = async (req, res) => {
     try {
       if (!req.file) {
@@ -214,6 +232,9 @@ export default function UserRoutes(app) {
     uploadProfileImage
   );
 
+  // PUT /api/users/:userId - Update user profile
+  // Body: { name, bio, imageData, imageId, imageMimeType, password (optional) }
+  // Auth: Required (must be own profile)
   const updateUser = async (req, res) => {
     try {
       const { userId } = req.params;
@@ -251,6 +272,9 @@ export default function UserRoutes(app) {
   };
   app.put("/api/users/:userId", updateUser);
 
+  // POST /api/users - Create user (admin/internal use)
+  // Body: { username, email, password, name, etc }
+  // Auth: Not required (should be restricted in production)
   const createUser = async (req, res) => {
     try {
       const user = await dao.createUser(req.body);
@@ -290,6 +314,8 @@ export default function UserRoutes(app) {
   };
   app.delete("/api/users/:userId", deleteUser);
 
+  // GET /api/admin/users - Get all users (admin only)
+  // Auth: Required (ADMIN role)
   const getAllUsers = async (req, res) => {
     try {
       const users = await dao.findAllUsers();
@@ -300,6 +326,8 @@ export default function UserRoutes(app) {
   };
   app.get("/api/admin/users", requireRole(["ADMIN"]), getAllUsers);
 
+  // GET /api/images/user/:imageId - Serve user profile image
+  // Auth: Not required
   const getUserImage = async (req, res) => {
     try {
       const { imageId } = req.params;

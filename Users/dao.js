@@ -2,6 +2,7 @@ import model from "./model.js";
 import { v4 as uuidv4 } from "uuid";
 
 export default function UsersDao() {
+  // Create a new user with UUID
   const createUser = async (user) => {
     try {
       const newUser = { ...user, _id: uuidv4() };
@@ -11,6 +12,7 @@ export default function UsersDao() {
     }
   };
 
+  // Get all users (excludes imageData for performance)
   const findAllUsers = async () => {
     try {
       return await model.find().select("-imageData");
@@ -19,6 +21,7 @@ export default function UsersDao() {
     }
   };
 
+  // Get user by ID (excludes imageData)
   const findUserById = async (id) => {
     try {
       return await model.findById(id).select("-imageData");
@@ -27,6 +30,7 @@ export default function UsersDao() {
     }
   };
 
+  // Search users by name or username (case-insensitive regex)
   const findUsersByPartialName = async (partialName) => {
     try {
       const regex = new RegExp(partialName, "i");
@@ -40,6 +44,7 @@ export default function UsersDao() {
     }
   };
 
+  // Get users by role (USER or ADMIN)
   const findUsersByRole = async (role) => {
     try {
       return await model.find({ role }).select("-imageData");
@@ -48,6 +53,7 @@ export default function UsersDao() {
     }
   };
 
+  // Find user by username
   const findUserByUsername = async (username) => {
     try {
       return await model.findOne({ username });
@@ -56,6 +62,7 @@ export default function UsersDao() {
     }
   };
 
+  // Find user by email
   const findUserByEmail = async (email) => {
     try {
       return await model.findOne({ email });
@@ -64,6 +71,7 @@ export default function UsersDao() {
     }
   };
 
+  // Find user by username and password (deprecated - use bcrypt compare instead)
   const findUserByCredentials = async (username, password) => {
     try {
       return await model.findOne({ username, password });
@@ -72,6 +80,7 @@ export default function UsersDao() {
     }
   };
 
+  // Find user by email and password (deprecated - use bcrypt compare instead)
   const findUserByEmailCredentials = async (email, password) => {
     try {
       return await model.findOne({ email, password });
@@ -80,6 +89,7 @@ export default function UsersDao() {
     }
   };
 
+  // Update user by ID
   const updateUser = async (id, user) => {
     try {
       return await model.findByIdAndUpdate(id, user, { new: true });
@@ -88,6 +98,7 @@ export default function UsersDao() {
     }
   };
 
+  // Delete user by ID
   const deleteUser = async (id) => {
     try {
       return await model.findByIdAndDelete(id);
@@ -96,6 +107,7 @@ export default function UsersDao() {
     }
   };
 
+  // Find user by imageId (used for serving profile images)
   const findUserByImageId = async (imageId) => {
     try {
       return await model.findOne({ imageId });
