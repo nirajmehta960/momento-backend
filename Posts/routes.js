@@ -1,9 +1,13 @@
 import PostsDao from "./dao.js";
+import NotificationsDao from "../Notifications/dao.js";
+import FollowsDao from "../Follows/dao.js";
 import upload from "../middleware/uploadBase64.js";
 import multer from "multer";
+import { requireRole } from "../middleware/auth.js";
 
 export default function PostRoutes(app) {
   const dao = PostsDao();
+  const notificationsDao = NotificationsDao();
 
   // POST /api/posts - Create a new post
   // Body: FormData (file, caption, location, tags)
@@ -99,6 +103,69 @@ export default function PostRoutes(app) {
     }
   };
   app.get("/api/posts", getRecentPosts);
+
+  // GET /api/posts/search - Search posts by caption, location, or tags
+  // Query params: ?searchTerm=query
+  // Auth: Not required
+  const searchPosts = async (req, res) => {
+    try {
+      const { searchTerm } = req.query;
+      if (!searchTerm) {
+        res.status(400).json({ error: "Search term is required" });
+        return;
+      }
+      const posts = await dao.searchPosts(searchTerm);
+      res.json({ documents: posts });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to search posts" });
+    }
+  };
+  app.get("/api/posts/search", searchPosts);
+
+  // GET /api/posts/feed - Get personalized feed (posts from followed users + own posts)
+  // Query params: ?limit=10&skip=0&sortBy=latest
+  // Auth: Required
+  const getFeed = async (req, res) => {
+    try {
+      const currentUser = req.session["currentUser"];
+      if (!currentUser) {
+        res.status(401).json({ message: "You must be logged in" });
+        return;
+      }
+
+      const followsDao = FollowsDao();
+      const { limit, skip, sortBy } = req.query;
+      const limitNum = limit ? parseInt(limit) : undefined;
+      const skipNum = skip ? parseInt(skip) : 0;
+      const sortOption = sortBy || "latest";
+
+      // Get list of users the current user is following
+      const following = await followsDao.findFollowing(currentUser._id);
+      const followingIds = following.map((user) => user._id || user.id);
+
+      // Include current user's own posts in the feed
+      const feedUserIds = [...followingIds, currentUser._id];
+
+      // Get all posts and filter by feed users
+      let posts = await dao.findAllPosts(sortOption);
+      posts = posts.filter((post) => {
+        const creatorId = post.creator?._id || post.creator?.id;
+        return feedUserIds.includes(creatorId);
+      });
+
+      if (skipNum > 0) {
+        posts = posts.slice(skipNum);
+      }
+      if (limitNum) {
+        posts = posts.slice(0, limitNum);
+      }
+
+      res.json({ documents: posts });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch feed" });
+    }
+  };
+  app.get("/api/posts/feed", getFeed);
 
   // GET /api/posts/:postId - Get post by ID
   // Auth: Not required
@@ -285,12 +352,73 @@ export default function PostRoutes(app) {
         return;
       }
 
+      // Create notification when user likes a post (not their own)
+      if (isLiking && populatedPost.creator._id !== currentUser._id) {
+        try {
+          await notificationsDao.createNotification({
+            user: populatedPost.creator._id,
+            actor: currentUser._id,
+            type: "LIKE",
+            post: postId,
+          });
+        } catch (notifError) {
+          // Non-blocking: notification creation failure shouldn't break the like
+        }
+      }
+
       res.json(populatedPost);
     } catch (error) {
       res.status(500).json({ error: error.message || "Failed to like post" });
     }
   };
   app.put("/api/posts/:postId/like", likePost);
+
+  // GET /api/posts/user/:userId/liked - Get posts liked by a user
+  // Auth: Required (must be own profile)
+  const getLikedPosts = async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const currentUser = req.session["currentUser"];
+      if (!currentUser) {
+        res.status(401).json({ message: "You must be logged in" });
+        return;
+      }
+
+      if (currentUser._id !== userId) {
+        res.status(403).json({ message: "Unauthorized" });
+        return;
+      }
+
+      const posts = await dao.findPostsLikedByUser(userId);
+      res.json({ documents: posts });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch liked posts" });
+    }
+  };
+  app.get("/api/posts/user/:userId/liked", getLikedPosts);
+
+  // DELETE /api/admin/posts/:postId - Delete post (admin only)
+  // Auth: Required (ADMIN role)
+  const deletePostAdmin = async (req, res) => {
+    try {
+      const { postId } = req.params;
+      const post = await dao.findPostById(postId);
+      if (!post) {
+        res.status(404).json({ message: "Post not found" });
+        return;
+      }
+
+      await dao.deletePost(postId);
+      res.json({ message: "Post deleted successfully by admin" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete post" });
+    }
+  };
+  app.delete(
+    "/api/admin/posts/:postId",
+    requireRole(["ADMIN"]),
+    deletePostAdmin
+  );
 
   // GET /api/images/post/:imageId - Serve post image
   // Auth: Not required

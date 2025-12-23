@@ -133,6 +133,42 @@ export default function PostsDao() {
     }
   };
 
+  // Search posts by caption, location, or tags
+  const searchPosts = async (searchTerm) => {
+    try {
+      if (!searchTerm || searchTerm.trim() === "") {
+        return [];
+      }
+      const regex = new RegExp(searchTerm.trim(), "i");
+      return await model
+        .find({
+          $or: [
+            { caption: { $regex: regex } },
+            { location: { $regex: regex } },
+            { tags: regex },
+          ],
+        })
+        .populate("creator", "-imageData")
+        .select("-imageData")
+        .sort({ createdAt: -1 });
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  // Find posts liked by a specific user
+  const findPostsLikedByUser = async (userId) => {
+    try {
+      return await model
+        .find({ likes: userId })
+        .populate("creator", "-imageData")
+        .select("-imageData")
+        .sort({ createdAt: -1 });
+    } catch (error) {
+      throw error;
+    }
+  };
+
   return {
     createPost,
     findAllPosts,
@@ -142,5 +178,7 @@ export default function PostsDao() {
     deletePost,
     likePost,
     findPostByImageId,
+    searchPosts,
+    findPostsLikedByUser,
   };
 }
