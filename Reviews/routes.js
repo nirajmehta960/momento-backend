@@ -18,9 +18,12 @@ export default function ReviewRoutes(app) {
         return;
       }
 
-      const { postId, externalContentId, review, rating } = req.body;
+      const { postId, externalContentId, review, comment, rating } = req.body;
 
-      if (!review || review.trim() === "") {
+      // Accept both 'review' and 'comment' for compatibility
+      const reviewText = review || comment;
+
+      if (!reviewText || reviewText.trim() === "") {
         res.status(400).json({ error: "Review text is required" });
         return;
       }
@@ -36,7 +39,7 @@ export default function ReviewRoutes(app) {
         user: currentUser._id,
         post: postId || null,
         externalContentId: externalContentId || null,
-        review: review.trim(),
+        review: reviewText.trim(),
         rating: rating || null,
       };
 
@@ -130,14 +133,16 @@ export default function ReviewRoutes(app) {
         return;
       }
 
-      const { review, rating } = req.body;
+      const { review, comment, rating } = req.body;
       const updateData = {};
-      if (review !== undefined) {
-        if (review.trim() === "") {
+      // Accept both 'review' and 'comment' for compatibility
+      const reviewText = review || comment;
+      if (reviewText !== undefined) {
+        if (reviewText.trim() === "") {
           res.status(400).json({ error: "Review text cannot be empty" });
           return;
         }
-        updateData.review = review.trim();
+        updateData.review = reviewText.trim();
       }
       if (rating !== undefined) {
         updateData.rating = rating;
