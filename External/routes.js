@@ -1,4 +1,8 @@
 import axios from "axios";
+import {
+  validateExternalSearch,
+  validateExternalId,
+} from "../middleware/validation.js";
 
 export default function ExternalRoutes(app) {
   const search = async (req, res) => {
@@ -127,7 +131,7 @@ export default function ExternalRoutes(app) {
       }
     }
   };
-  app.get("/api/external/details/:id", getDetails);
+  app.get("/api/external/details/:id", validateExternalId, getDetails);
 
   return app;
 }
