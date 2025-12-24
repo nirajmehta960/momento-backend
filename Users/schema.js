@@ -20,4 +20,10 @@ const userSchema = new mongoose.Schema(
   { collection: "users" }
 );
 
+// Indexes for performance optimization
+// Note: unique: true already creates indexes for username and email
+userSchema.index({ imageId: 1 }); // For finding users by imageId
+userSchema.index({ role: 1 }); // For finding users by role
+userSchema.index({ name: "text", username: "text" }); // Text search index for name/username search
+
 export default userSchema;

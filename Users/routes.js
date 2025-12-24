@@ -7,10 +7,19 @@ import NotificationsDao from "../Notifications/dao.js";
 import ReviewsModel from "../Reviews/model.js";
 import SavesModel from "../Saves/model.js";
 import FollowsModel from "../Follows/model.js";
+import NotificationsModel from "../Notifications/model.js";
 import upload from "../middleware/uploadBase64.js";
 import multer from "multer";
 import bcrypt from "bcryptjs";
 import { requireRole } from "../middleware/auth.js";
+import {
+  validateSignup,
+  validateSignin,
+  validateUpdateUser,
+  validatePagination,
+  validateSearch,
+  validateUserId,
+} from "../middleware/validation.js";
 
 export default function UserRoutes(app) {
   const dao = UsersDao();
@@ -48,7 +57,7 @@ export default function UserRoutes(app) {
       res.status(500).json({ error: "Failed to sign up user" });
     }
   };
-  app.post("/api/users/signup", signup);
+  app.post("/api/users/signup", validateSignup, signup);
 
   // POST /api/users/signin - Sign in user (email or username)
   // Body: { email, password }
@@ -98,7 +107,7 @@ export default function UserRoutes(app) {
       res.status(500).json({ error: "Failed to sign in user" });
     }
   };
-  app.post("/api/users/signin", signin);
+  app.post("/api/users/signin", validateSignin, signin);
 
   // POST /api/users/signout - Sign out user (destroy session)
   // Auth: Not required (safe to call even if not logged in)
@@ -129,19 +138,21 @@ export default function UserRoutes(app) {
   app.post("/api/users/profile", profile);
 
   // GET /api/users - Get all users (with optional filters)
-  // Query params: ?role=ADMIN, ?name=searchTerm
+  // Query params: ?role=ADMIN, ?name=searchTerm, ?limit=10, ?skip=0
   // Auth: Not required
   const findAllUsers = async (req, res) => {
     try {
-      const { role, name } = req.query;
+      const { role, name, limit, skip } = req.query;
+      const limitNum = limit ? parseInt(limit) : 20; // Default limit of 20
+      const skipNum = skip ? parseInt(skip) : 0;
       let users;
 
       if (role) {
-        users = await dao.findUsersByRole(role);
+        users = await dao.findUsersByRole(role, limitNum, skipNum);
       } else if (name) {
-        users = await dao.findUsersByPartialName(name);
+        users = await dao.findUsersByPartialName(name, limitNum, skipNum);
       } else {
-        users = await dao.findAllUsers();
+        users = await dao.findAllUsers(limitNum, skipNum);
       }
       const sanitizedUsers = users.map((user) => {
         const userObj = user.toObject ? user.toObject() : { ...user };
@@ -153,12 +164,12 @@ export default function UserRoutes(app) {
         return userObj;
       });
 
-      res.json(sanitizedUsers);
+      res.json({ documents: sanitizedUsers });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch users" });
     }
   };
-  app.get("/api/users", findAllUsers);
+  app.get("/api/users", validatePagination, findAllUsers);
 
   // GET /api/users/:userId - Get user by ID
   // Auth: Not required (email hidden unless own profile)
@@ -192,7 +203,7 @@ export default function UserRoutes(app) {
       res.status(500).json({ error: "Failed to fetch user" });
     }
   };
-  app.get("/api/users/:userId", findUserById);
+  app.get("/api/users/:userId", validateUserId, findUserById);
 
   // POST /api/users/upload - Upload profile image
   // Body: FormData (file)
@@ -283,7 +294,7 @@ export default function UserRoutes(app) {
       res.status(500).json({ error: "Failed to update user" });
     }
   };
-  app.put("/api/users/:userId", updateUser);
+  app.put("/api/users/:userId", validateUpdateUser, updateUser);
 
   // POST /api/users - Create user (admin/internal use)
   // Body: { username, email, password, name, etc }
@@ -316,6 +327,7 @@ export default function UserRoutes(app) {
       }
 
       // Cascade delete: Delete all user-related data
+      // This works for both self-deletion and admin deletion
       // 1. Delete all posts by this user
       const userPosts = await postsDao.findPostsByCreator(userId);
       for (const post of userPosts) {
@@ -342,7 +354,7 @@ export default function UserRoutes(app) {
         await FollowsModel.deleteOne({ _id: follow._id });
       }
 
-      // 5. Delete all notifications for this user
+      // 5. Delete all notifications for this user (as recipient)
       const userNotifications = await notificationsDao.findNotificationsByUser(
         userId
       );
@@ -350,7 +362,15 @@ export default function UserRoutes(app) {
         await notificationsDao.deleteNotification(notification._id);
       }
 
-      // 6. Remove user from likes arrays in posts
+      // 6. Delete all notifications where this user is the actor
+      const actorNotifications = await NotificationsModel.find({
+        actor: userId,
+      });
+      for (const notification of actorNotifications) {
+        await notificationsDao.deleteNotification(notification._id);
+      }
+
+      // 7. Remove user from likes arrays in posts
       const allPosts = await postsDao.findAllPosts();
       for (const post of allPosts) {
         if (post.likes && post.likes.includes(userId)) {
@@ -370,7 +390,7 @@ export default function UserRoutes(app) {
       res.status(500).json({ error: "Failed to delete user" });
     }
   };
-  app.delete("/api/users/:userId", deleteUser);
+  app.delete("/api/users/:userId", validateUserId, deleteUser);
 
   // GET /api/admin/users - Get all users (admin only)
   // Auth: Required (ADMIN role)
@@ -397,6 +417,18 @@ export default function UserRoutes(app) {
       const imageBuffer = Buffer.from(user.imageData, "base64");
       res.set("Content-Type", user.imageMimeType || "image/jpeg");
       res.set("Cache-Control", "public, max-age=31536000, immutable");
+      // Allow cross-origin requests for images from any origin (for production)
+      const origin = req.headers.origin;
+      if (origin) {
+        res.set("Access-Control-Allow-Origin", origin);
+      } else {
+        const allowedOrigins = process.env.CLIENT_URL?.split(",") || [
+          "http://localhost:3000",
+        ];
+        res.set("Access-Control-Allow-Origin", allowedOrigins[0]);
+      }
+      res.set("Access-Control-Allow-Credentials", "true");
+      res.set("Cross-Origin-Resource-Policy", "cross-origin");
       res.send(imageBuffer);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch image" });

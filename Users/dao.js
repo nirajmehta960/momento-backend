@@ -12,10 +12,19 @@ export default function UsersDao() {
     }
   };
 
-  // Get all users (excludes imageData for performance)
-  const findAllUsers = async () => {
+  // Get all users with pagination (excludes imageData for performance)
+  const findAllUsers = async (limit = null, skip = 0) => {
     try {
-      return await model.find().select("-imageData");
+      let query = model.find().select("-imageData").sort({ createdAt: -1 });
+
+      if (skip > 0) {
+        query = query.skip(skip);
+      }
+      if (limit && limit > 0) {
+        query = query.limit(limit);
+      }
+
+      return await query;
     } catch (error) {
       throw error;
     }
@@ -30,24 +39,43 @@ export default function UsersDao() {
     }
   };
 
-  // Search users by name or username (case-insensitive regex)
-  const findUsersByPartialName = async (partialName) => {
+  // Search users by name or username with pagination (case-insensitive regex)
+  const findUsersByPartialName = async (partialName, limit = null, skip = 0) => {
     try {
       const regex = new RegExp(partialName, "i");
-      return await model
+      let query = model
         .find({
           $or: [{ name: { $regex: regex } }, { username: { $regex: regex } }],
         })
-        .select("-imageData");
+        .select("-imageData")
+        .sort({ createdAt: -1 });
+
+      if (skip > 0) {
+        query = query.skip(skip);
+      }
+      if (limit && limit > 0) {
+        query = query.limit(limit);
+      }
+
+      return await query;
     } catch (error) {
       throw error;
     }
   };
 
-  // Get users by role (USER or ADMIN)
-  const findUsersByRole = async (role) => {
+  // Get users by role with pagination (USER or ADMIN)
+  const findUsersByRole = async (role, limit = null, skip = 0) => {
     try {
-      return await model.find({ role }).select("-imageData");
+      let query = model.find({ role }).select("-imageData").sort({ createdAt: -1 });
+
+      if (skip > 0) {
+        query = query.skip(skip);
+      }
+      if (limit && limit > 0) {
+        query = query.limit(limit);
+      }
+
+      return await query;
     } catch (error) {
       throw error;
     }
