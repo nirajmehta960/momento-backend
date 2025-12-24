@@ -18,4 +18,12 @@ const postSchema = new mongoose.Schema(
   { collection: "posts" }
 );
 
+// Indexes for performance optimization
+postSchema.index({ creator: 1 }); // For finding posts by creator
+postSchema.index({ createdAt: -1 }); // For sorting by date (most recent first)
+postSchema.index({ imageId: 1 }); // For finding posts by imageId
+postSchema.index({ likes: 1 }); // For finding posts liked by a user
+postSchema.index({ tags: 1 }); // For tag-based searches
+postSchema.index({ location: 1 }); // For location-based searches
+
 export default postSchema;

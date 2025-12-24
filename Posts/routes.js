@@ -1,9 +1,18 @@
 import PostsDao from "./dao.js";
 import NotificationsDao from "../Notifications/dao.js";
 import FollowsDao from "../Follows/dao.js";
+import PostsModel from "./model.js";
 import upload from "../middleware/uploadBase64.js";
 import multer from "multer";
 import { requireRole } from "../middleware/auth.js";
+import {
+  validateCreatePost,
+  validateUpdatePost,
+  validatePagination,
+  validateSearch,
+  validatePostId,
+  validateUserId,
+} from "../middleware/validation.js";
 
 export default function PostRoutes(app) {
   const dao = PostsDao();
@@ -81,46 +90,47 @@ export default function PostRoutes(app) {
         next();
       });
     },
+    validateCreatePost,
     createPost
   );
 
   const getRecentPosts = async (req, res) => {
     try {
       const { limit, skip, sortBy } = req.query;
-      const limitNum = limit ? parseInt(limit) : undefined;
+      const limitNum = limit ? parseInt(limit) : 20; // Default limit of 20
       const skipNum = skip ? parseInt(skip) : 0;
       const sortOption = sortBy || "latest";
-      let posts = await dao.findAllPosts(sortOption);
-      if (skipNum > 0) {
-        posts = posts.slice(skipNum);
-      }
-      if (limitNum) {
-        posts = posts.slice(0, limitNum);
-      }
+
+      // Use optimized findAllPosts with pagination
+      const posts = await dao.findAllPosts(sortOption, limitNum, skipNum);
+
       res.json({ documents: posts });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch posts" });
     }
   };
-  app.get("/api/posts", getRecentPosts);
+  app.get("/api/posts", validatePagination, getRecentPosts);
 
   // GET /api/posts/search - Search posts by caption, location, or tags
   // Query params: ?searchTerm=query
   // Auth: Not required
   const searchPosts = async (req, res) => {
     try {
-      const { searchTerm } = req.query;
+      const { searchTerm, limit, skip } = req.query;
       if (!searchTerm) {
         res.status(400).json({ error: "Search term is required" });
         return;
       }
-      const posts = await dao.searchPosts(searchTerm);
+      const limitNum = limit ? parseInt(limit) : 20; // Default limit of 20
+      const skipNum = skip ? parseInt(skip) : 0;
+
+      const posts = await dao.searchPosts(searchTerm, limitNum, skipNum);
       res.json({ documents: posts });
     } catch (error) {
       res.status(500).json({ error: "Failed to search posts" });
     }
   };
-  app.get("/api/posts/search", searchPosts);
+  app.get("/api/posts/search", validateSearch, searchPosts);
 
   // GET /api/posts/feed - Get personalized feed (posts from followed users + own posts)
   // Query params: ?limit=10&skip=0&sortBy=latest
@@ -135,7 +145,7 @@ export default function PostRoutes(app) {
 
       const followsDao = FollowsDao();
       const { limit, skip, sortBy } = req.query;
-      const limitNum = limit ? parseInt(limit) : undefined;
+      const limitNum = limit ? parseInt(limit) : 20; // Default limit of 20
       const skipNum = skip ? parseInt(skip) : 0;
       const sortOption = sortBy || "latest";
 
@@ -146,18 +156,41 @@ export default function PostRoutes(app) {
       // Include current user's own posts in the feed
       const feedUserIds = [...followingIds, currentUser._id];
 
-      // Get all posts and filter by feed users
-      let posts = await dao.findAllPosts(sortOption);
-      posts = posts.filter((post) => {
-        const creatorId = post.creator?._id || post.creator?.id;
-        return feedUserIds.includes(creatorId);
-      });
+      // Optimized: Query database directly for posts by feed users
+      // This is much more efficient than loading all posts and filtering
+      let query = PostsModel.find({ creator: { $in: feedUserIds } })
+        .populate("creator", "-imageData")
+        .select("-imageData");
 
-      if (skipNum > 0) {
-        posts = posts.slice(skipNum);
+      // Apply sorting
+      if (sortOption === "latest") {
+        query = query.sort({ createdAt: -1 });
+      } else if (sortOption === "oldest") {
+        query = query.sort({ createdAt: 1 });
+      } else {
+        query = query.sort({ createdAt: -1 }); // Default
       }
-      if (limitNum) {
-        posts = posts.slice(0, limitNum);
+
+      // Apply pagination
+      if (skipNum > 0) {
+        query = query.skip(skipNum);
+      }
+      if (limitNum > 0) {
+        query = query.limit(limitNum);
+      }
+
+      let posts = await query;
+
+      // For mostLiked, sort by likes count (in-memory for now)
+      if (sortOption === "mostLiked") {
+        posts = posts.sort((a, b) => {
+          const aLikes = (a.likes || []).length;
+          const bLikes = (b.likes || []).length;
+          if (aLikes !== bLikes) {
+            return bLikes - aLikes;
+          }
+          return new Date(b.createdAt) - new Date(a.createdAt);
+        });
       }
 
       res.json({ documents: posts });
@@ -165,7 +198,7 @@ export default function PostRoutes(app) {
       res.status(500).json({ error: "Failed to fetch feed" });
     }
   };
-  app.get("/api/posts/feed", getFeed);
+  app.get("/api/posts/feed", validatePagination, getFeed);
 
   // GET /api/posts/:postId - Get post by ID
   // Auth: Not required
@@ -182,18 +215,27 @@ export default function PostRoutes(app) {
       res.status(500).json({ error: "Failed to fetch post" });
     }
   };
-  app.get("/api/posts/:postId", getPostById);
+  app.get("/api/posts/:postId", validatePostId, getPostById);
 
   const getUserPosts = async (req, res) => {
     try {
       const { userId } = req.params;
-      const posts = await dao.findPostsByCreator(userId);
+      const { limit, skip } = req.query;
+      const limitNum = limit ? parseInt(limit) : 20; // Default limit of 20
+      const skipNum = skip ? parseInt(skip) : 0;
+
+      const posts = await dao.findPostsByCreator(userId, limitNum, skipNum);
       res.json({ documents: posts });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch user posts" });
     }
   };
-  app.get("/api/posts/user/:userId", getUserPosts);
+  app.get(
+    "/api/posts/user/:userId",
+    validateUserId,
+    validatePagination,
+    getUserPosts
+  );
 
   // PUT /api/posts/:postId - Update post
   // Body: FormData (optional file, caption, location, tags)
@@ -298,7 +340,7 @@ export default function PostRoutes(app) {
       res.status(500).json({ error: "Failed to delete post" });
     }
   };
-  app.delete("/api/posts/:postId", deletePost);
+  app.delete("/api/posts/:postId", validatePostId, deletePost);
 
   // PUT /api/posts/:postId/like - Like/unlike a post
   // Body: { likesArray: string[] }
@@ -371,7 +413,7 @@ export default function PostRoutes(app) {
       res.status(500).json({ error: error.message || "Failed to like post" });
     }
   };
-  app.put("/api/posts/:postId/like", likePost);
+  app.put("/api/posts/:postId/like", validatePostId, likePost);
 
   // GET /api/posts/user/:userId/liked - Get posts liked by a user
   // Auth: Required (must be own profile)
@@ -395,7 +437,12 @@ export default function PostRoutes(app) {
       res.status(500).json({ error: "Failed to fetch liked posts" });
     }
   };
-  app.get("/api/posts/user/:userId/liked", getLikedPosts);
+  app.get(
+    "/api/posts/user/:userId/liked",
+    validateUserId,
+    validatePagination,
+    getLikedPosts
+  );
 
   // DELETE /api/admin/posts/:postId - Delete post (admin only)
   // Auth: Required (ADMIN role)
@@ -433,6 +480,18 @@ export default function PostRoutes(app) {
       const imageBuffer = Buffer.from(post.imageData, "base64");
       res.set("Content-Type", post.imageMimeType || "image/jpeg");
       res.set("Cache-Control", "public, max-age=31536000, immutable");
+      // Allow cross-origin requests for images from any origin (for production)
+      const origin = req.headers.origin;
+      if (origin) {
+        res.set("Access-Control-Allow-Origin", origin);
+      } else {
+        const allowedOrigins = process.env.CLIENT_URL?.split(",") || [
+          "http://localhost:3000",
+        ];
+        res.set("Access-Control-Allow-Origin", allowedOrigins[0]);
+      }
+      res.set("Access-Control-Allow-Credentials", "true");
+      res.set("Cross-Origin-Resource-Policy", "cross-origin");
       res.send(imageBuffer);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch image" });
