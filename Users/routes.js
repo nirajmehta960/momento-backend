@@ -261,6 +261,9 @@ export default function UserRoutes(app) {
   };
   app.post("/api/users", createUser);
 
+  // DELETE /api/users/:userId - Delete user account
+  // Supports both self-deletion and admin deletion
+  // Cascading delete is handled in dao.deleteUser() for both cases
   const deleteUser = async (req, res) => {
     try {
       const { userId } = req.params;
@@ -271,6 +274,7 @@ export default function UserRoutes(app) {
         return;
       }
 
+      // Allow deletion if user is deleting their own account OR if current user is ADMIN
       if (currentUser._id !== userId && currentUser.role !== "ADMIN") {
         res
           .status(403)
@@ -278,10 +282,13 @@ export default function UserRoutes(app) {
         return;
       }
 
+      // Destroy session only if user is deleting their own account
       if (currentUser._id === userId) {
         req.session.destroy();
       }
 
+      // Cascading delete: Removes all related data (posts, reviews, saves, follows, notifications)
+      // Works for both self-deletion and admin deletion
       const status = await dao.deleteUser(userId);
       res.json(status);
     } catch (error) {
