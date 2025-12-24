@@ -23,4 +23,9 @@ const notificationSchema = new mongoose.Schema(
   { collection: "notifications" }
 );
 
+// Indexes for performance optimization
+notificationSchema.index({ user: 1, read: 1 }); // For finding unread notifications by user
+notificationSchema.index({ user: 1, createdAt: -1 }); // For sorting notifications by user and date
+notificationSchema.index({ actor: 1 }); // For finding notifications by actor (for cascade deletion)
+
 export default notificationSchema;

@@ -1,9 +1,14 @@
 import NotificationsDao from "./dao.js";
+import {
+  validateNotificationId,
+  validatePagination,
+} from "../middleware/validation.js";
 
 export default function NotificationRoutes(app) {
   const dao = NotificationsDao();
 
   // GET /api/notifications - Get all notifications for current user
+  // Query params: ?limit=10&skip=0
   // Returns: { documents: Notification[] } (populated with actor, post, review)
   // Auth: Required
   const getNotifications = async (req, res) => {
@@ -14,13 +19,21 @@ export default function NotificationRoutes(app) {
         return;
       }
 
-      const notifications = await dao.findNotificationsByUser(currentUser._id);
+      const { limit, skip } = req.query;
+      const limitNum = limit ? parseInt(limit) : 20; // Default limit of 20
+      const skipNum = skip ? parseInt(skip) : 0;
+
+      const notifications = await dao.findNotificationsByUser(
+        currentUser._id,
+        limitNum,
+        skipNum
+      );
       res.json({ documents: notifications });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch notifications" });
     }
   };
-  app.get("/api/notifications", getNotifications);
+  app.get("/api/notifications", validatePagination, getNotifications);
 
   // GET /api/notifications/unread-count - Get count of unread notifications
   // Returns: { count: number }
@@ -60,7 +73,11 @@ export default function NotificationRoutes(app) {
       res.status(500).json({ error: "Failed to mark notification as read" });
     }
   };
-  app.put("/api/notifications/:notificationId/read", markNotificationAsRead);
+  app.put(
+    "/api/notifications/:notificationId/read",
+    validateNotificationId,
+    markNotificationAsRead
+  );
 
   // PUT /api/notifications/read-all - Mark all notifications as read
   // Auth: Required
@@ -102,7 +119,11 @@ export default function NotificationRoutes(app) {
       res.status(500).json({ error: "Failed to delete notification" });
     }
   };
-  app.delete("/api/notifications/:notificationId", deleteNotification);
+  app.delete(
+    "/api/notifications/:notificationId",
+    validateNotificationId,
+    deleteNotification
+  );
 
   return app;
 }
