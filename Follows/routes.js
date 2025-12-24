@@ -1,5 +1,10 @@
 import FollowsDao from "./dao.js";
 import NotificationsDao from "../Notifications/dao.js";
+import {
+  validateFollowUser,
+  validateFollowingId,
+  validateUserId,
+} from "../middleware/validation.js";
 
 export default function FollowRoutes(app) {
   const dao = FollowsDao();
@@ -43,7 +48,7 @@ export default function FollowRoutes(app) {
       }
     }
   };
-  app.post("/api/follows", followUser);
+  app.post("/api/follows", validateFollowUser, followUser);
 
   // DELETE /api/follows/:followingId - Unfollow a user
   // Auth: Required
@@ -63,7 +68,7 @@ export default function FollowRoutes(app) {
       res.status(500).json({ error: "Failed to unfollow user" });
     }
   };
-  app.delete("/api/follows/:followingId", unfollowUser);
+  app.delete("/api/follows/:followingId", validateFollowingId, unfollowUser);
 
   // GET /api/follows/followers/:userId - Get followers of a user
   // Auth: Not required
@@ -76,7 +81,7 @@ export default function FollowRoutes(app) {
       res.status(500).json({ error: "Failed to fetch followers" });
     }
   };
-  app.get("/api/follows/followers/:userId", getFollowers);
+  app.get("/api/follows/followers/:userId", validateUserId, getFollowers);
 
   // GET /api/follows/following/:userId - Get users that a user is following
   // Auth: Not required
@@ -89,7 +94,7 @@ export default function FollowRoutes(app) {
       res.status(500).json({ error: "Failed to fetch following" });
     }
   };
-  app.get("/api/follows/following/:userId", getFollowing);
+  app.get("/api/follows/following/:userId", validateUserId, getFollowing);
 
   return app;
 }

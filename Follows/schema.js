@@ -10,4 +10,9 @@ const followSchema = new mongoose.Schema(
   { collection: "follows" }
 );
 
+// Indexes for performance optimization
+followSchema.index({ follower: 1 }); // For finding who a user is following
+followSchema.index({ following: 1 }); // For finding who follows a user
+followSchema.index({ follower: 1, following: 1 }); // Compound index for checking follow relationship
+
 export default followSchema;
