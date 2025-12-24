@@ -13,17 +13,31 @@ export default function NotificationsDao() {
     }
   };
 
-  // Get all notifications for a user (read and unread)
+  // Get all notifications for a user with pagination (read and unread)
   // Populates actor, post, and review references for complete notification data
   // Sorted by newest first (createdAt: -1)
-  const findNotificationsByUser = async (userId) => {
+  // Optimized with .lean() and selective field population for better performance
+  const findNotificationsByUser = async (userId, limit = null, skip = 0) => {
     try {
-      return await model
+      let query = model
         .find({ user: userId })
-        .populate("actor")
-        .populate("post")
-        .populate("review")
-        .sort({ createdAt: -1 });
+        .populate("actor", "name username imageUrl imageId") // Only get needed actor fields
+        .populate("post", "_id caption imageUrl imageId createdAt") // Only get needed post fields (no creator to avoid extra query)
+        .populate({
+          path: "review",
+          select: "_id review rating createdAt", // Only get needed review fields
+        })
+        .sort({ createdAt: -1 })
+        .lean(); // Use lean() for faster read-only queries (returns plain objects)
+
+      if (skip > 0) {
+        query = query.skip(skip);
+      }
+      if (limit && limit > 0) {
+        query = query.limit(limit);
+      }
+
+      return await query;
     } catch (error) {
       throw error;
     }
@@ -31,14 +45,19 @@ export default function NotificationsDao() {
 
   // Get only unread notifications for a user
   // Useful for showing notification badges/counts
+  // Optimized with .lean() and selective field population
   const findUnreadNotificationsByUser = async (userId) => {
     try {
       return await model
         .find({ user: userId, read: false })
-        .populate("actor")
-        .populate("post")
-        .populate("review")
-        .sort({ createdAt: -1 });
+        .populate("actor", "name username imageUrl imageId")
+        .populate("post", "_id caption imageUrl imageId createdAt")
+        .populate({
+          path: "review",
+          select: "_id review rating createdAt",
+        })
+        .sort({ createdAt: -1 })
+        .lean();
     } catch (error) {
       throw error;
     }
