@@ -3,6 +3,7 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import session from "express-session";
+import compression from "compression";
 import path from "path";
 import { fileURLToPath } from "url";
 import UserRoutes from "./Users/routes.js";
@@ -12,16 +13,22 @@ import FollowRoutes from "./Follows/routes.js";
 import ReviewRoutes from "./Reviews/routes.js";
 import ExternalRoutes from "./External/routes.js";
 import NotificationRoutes from "./Notifications/routes.js";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const CONNECTION_STRING =
   process.env.DATABASE_CONNECTION_STRING || "mongodb://127.0.0.1:27017/momento";
+
 mongoose.connect(CONNECTION_STRING);
 
 const app = express();
 
+// Response compression (performance improvement)
+app.use(compression());
+
+// CORS configuration
 app.use(
   cors({
     credentials: true,
@@ -58,6 +65,12 @@ NotificationRoutes(app);
 app.get("/", (req, res) => {
   res.send("Welcome to Momento Social Network API!");
 });
+
+// 404 handler for undefined routes (must be after all routes)
+app.use(notFoundHandler);
+
+// Error handling middleware (must be last)
+app.use(errorHandler);
 
 const port = process.env.PORT || 4000;
 app.listen(port);
