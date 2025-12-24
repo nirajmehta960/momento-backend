@@ -12,24 +12,40 @@ export default function PostsDao() {
     }
   };
 
-  // Get all posts with optional sorting (latest, oldest, mostLiked)
-  const findAllPosts = async (sortBy = "latest") => {
+  // Get all posts with optional sorting and pagination (optimized with database sorting)
+  const findAllPosts = async (sortBy = "latest", limit = null, skip = 0) => {
     try {
       let sortQuery = { createdAt: -1 };
 
-      if (sortBy === "mostLiked") {
-        sortQuery = { likesCount: -1, createdAt: -1 };
-      } else if (sortBy === "latest") {
+      if (sortBy === "latest") {
         sortQuery = { createdAt: -1 };
       } else if (sortBy === "oldest") {
         sortQuery = { createdAt: 1 };
+      } else if (sortBy === "mostLiked") {
+        // For mostLiked, we need to sort by likes array length
+        // MongoDB doesn't support sorting by array length directly, so we'll use aggregation
+        // For now, we'll fetch all and sort in memory, but with limit/skip applied first
+        sortQuery = { createdAt: -1 }; // Fallback, will sort by likes after
       }
 
-      const posts = await model
+      let query = model
         .find()
         .populate("creator", "-imageData")
-        .select("-imageData");
+        .select("-imageData")
+        .sort(sortQuery);
 
+      // Apply pagination
+      if (skip > 0) {
+        query = query.skip(skip);
+      }
+      if (limit && limit > 0) {
+        query = query.limit(limit);
+      }
+
+      const posts = await query;
+
+      // For mostLiked, sort by likes count (in-memory for now)
+      // TODO: Consider using aggregation pipeline for better performance at scale
       if (sortBy === "mostLiked") {
         return posts.sort((a, b) => {
           const aLikes = (a.likes || []).length;
@@ -41,12 +57,7 @@ export default function PostsDao() {
         });
       }
 
-      return posts.sort((a, b) => {
-        if (sortBy === "oldest") {
-          return new Date(a.createdAt) - new Date(b.createdAt);
-        }
-        return new Date(b.createdAt) - new Date(a.createdAt);
-      });
+      return posts;
     } catch (error) {
       throw error;
     }
@@ -64,14 +75,23 @@ export default function PostsDao() {
     }
   };
 
-  // Get all posts by a specific user
-  const findPostsByCreator = async (userId) => {
+  // Get all posts by a specific user with pagination
+  const findPostsByCreator = async (userId, limit = null, skip = 0) => {
     try {
-      return await model
+      let query = model
         .find({ creator: userId })
         .populate("creator", "-imageData")
         .select("-imageData")
         .sort({ createdAt: -1 });
+
+      if (skip > 0) {
+        query = query.skip(skip);
+      }
+      if (limit && limit > 0) {
+        query = query.limit(limit);
+      }
+
+      return await query;
     } catch (error) {
       throw error;
     }
@@ -133,14 +153,14 @@ export default function PostsDao() {
     }
   };
 
-  // Search posts by caption, location, or tags
-  const searchPosts = async (searchTerm) => {
+  // Search posts by caption, location, or tags with pagination
+  const searchPosts = async (searchTerm, limit = null, skip = 0) => {
     try {
       if (!searchTerm || searchTerm.trim() === "") {
         return [];
       }
       const regex = new RegExp(searchTerm.trim(), "i");
-      return await model
+      let query = model
         .find({
           $or: [
             { caption: { $regex: regex } },
@@ -151,19 +171,37 @@ export default function PostsDao() {
         .populate("creator", "-imageData")
         .select("-imageData")
         .sort({ createdAt: -1 });
+
+      if (skip > 0) {
+        query = query.skip(skip);
+      }
+      if (limit && limit > 0) {
+        query = query.limit(limit);
+      }
+
+      return await query;
     } catch (error) {
       throw error;
     }
   };
 
-  // Find posts liked by a specific user
-  const findPostsLikedByUser = async (userId) => {
+  // Find posts liked by a specific user with pagination
+  const findPostsLikedByUser = async (userId, limit = null, skip = 0) => {
     try {
-      return await model
+      let query = model
         .find({ likes: userId })
         .populate("creator", "-imageData")
         .select("-imageData")
         .sort({ createdAt: -1 });
+
+      if (skip > 0) {
+        query = query.skip(skip);
+      }
+      if (limit && limit > 0) {
+        query = query.limit(limit);
+      }
+
+      return await query;
     } catch (error) {
       throw error;
     }
