@@ -12,25 +12,43 @@ export default function ReviewsDao() {
     }
   };
 
-  // Get all reviews for a specific post (populated with user, sorted by newest)
-  const findReviewsByPost = async (postId) => {
+  // Get all reviews for a specific post with pagination (populated with user, sorted by newest)
+  const findReviewsByPost = async (postId, limit = null, skip = 0) => {
     try {
-      return await model
+      let query = model
         .find({ post: postId })
         .populate("user", "-imageData")
         .sort({ createdAt: -1 });
+
+      if (skip > 0) {
+        query = query.skip(skip);
+      }
+      if (limit && limit > 0) {
+        query = query.limit(limit);
+      }
+
+      return await query;
     } catch (error) {
       throw error;
     }
   };
 
-  // Get all reviews for external content (polymorphic relationship)
-  const findReviewsByExternalContent = async (externalContentId) => {
+  // Get all reviews for external content with pagination (polymorphic relationship)
+  const findReviewsByExternalContent = async (externalContentId, limit = null, skip = 0) => {
     try {
-      return await model
+      let query = model
         .find({ externalContentId: externalContentId })
         .populate("user", "-imageData")
         .sort({ createdAt: -1 });
+
+      if (skip > 0) {
+        query = query.skip(skip);
+      }
+      if (limit && limit > 0) {
+        query = query.limit(limit);
+      }
+
+      return await query;
     } catch (error) {
       throw error;
     }

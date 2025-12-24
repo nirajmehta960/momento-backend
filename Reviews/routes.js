@@ -1,6 +1,13 @@
 import ReviewsDao from "./dao.js";
 import NotificationsDao from "../Notifications/dao.js";
 import PostsDao from "../Posts/dao.js";
+import {
+  validateCreateReview,
+  validateUpdateReview,
+  validateReviewId,
+  validatePostId,
+  validatePagination,
+} from "../middleware/validation.js";
 
 export default function ReviewRoutes(app) {
   const dao = ReviewsDao();
@@ -66,9 +73,10 @@ export default function ReviewRoutes(app) {
       res.status(500).json({ error: "Failed to create review" });
     }
   };
-  app.post("/api/reviews", createReview);
+  app.post("/api/reviews", validateCreateReview, createReview);
 
   // GET /api/reviews/post/:postId - Get all reviews for a post
+  // Query params: ?limit=10&skip=0
   // Auth: Not required
   const getReviewsByPost = async (req, res) => {
     try {
@@ -78,15 +86,20 @@ export default function ReviewRoutes(app) {
         return;
       }
 
-      const reviews = await dao.findReviewsByPost(postId);
+      const { limit, skip } = req.query;
+      const limitNum = limit ? parseInt(limit) : 20; // Default limit of 20
+      const skipNum = skip ? parseInt(skip) : 0;
+
+      const reviews = await dao.findReviewsByPost(postId, limitNum, skipNum);
       res.json({ documents: reviews });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch reviews" });
     }
   };
-  app.get("/api/reviews/post/:postId", getReviewsByPost);
+  app.get("/api/reviews/post/:postId", validatePostId, validatePagination, getReviewsByPost);
 
   // GET /api/reviews/external/:externalContentId - Get reviews for external content
+  // Query params: ?limit=10&skip=0
   // Auth: Not required
   const getReviewsByExternalContent = async (req, res) => {
     try {
@@ -96,7 +109,11 @@ export default function ReviewRoutes(app) {
         return;
       }
 
-      const reviews = await dao.findReviewsByExternalContent(externalContentId);
+      const { limit, skip } = req.query;
+      const limitNum = limit ? parseInt(limit) : 20; // Default limit of 20
+      const skipNum = skip ? parseInt(skip) : 0;
+
+      const reviews = await dao.findReviewsByExternalContent(externalContentId, limitNum, skipNum);
       res.json({ documents: reviews });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch reviews" });
@@ -104,6 +121,7 @@ export default function ReviewRoutes(app) {
   };
   app.get(
     "/api/reviews/external/:externalContentId",
+    validatePagination,
     getReviewsByExternalContent
   );
 
@@ -155,7 +173,7 @@ export default function ReviewRoutes(app) {
       res.status(500).json({ error: "Failed to update review" });
     }
   };
-  app.put("/api/reviews/:reviewId", updateReview);
+  app.put("/api/reviews/:reviewId", validateUpdateReview, updateReview);
 
   // DELETE /api/reviews/:reviewId - Delete review (only own reviews)
   // Auth: Required (must be review owner)
@@ -188,7 +206,7 @@ export default function ReviewRoutes(app) {
       res.status(500).json({ error: "Failed to delete review" });
     }
   };
-  app.delete("/api/reviews/:reviewId", deleteReview);
+  app.delete("/api/reviews/:reviewId", validateReviewId, deleteReview);
 
   return app;
 }

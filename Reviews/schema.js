@@ -14,4 +14,10 @@ const reviewSchema = new mongoose.Schema(
   { collection: "reviews" }
 );
 
+// Indexes for performance optimization
+reviewSchema.index({ user: 1 }); // For finding reviews by user
+reviewSchema.index({ post: 1 }); // For finding reviews by post
+reviewSchema.index({ externalContentId: 1 }); // For finding reviews by external content
+reviewSchema.index({ createdAt: -1 }); // For sorting by date
+
 export default reviewSchema;
