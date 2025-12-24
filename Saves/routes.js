@@ -1,4 +1,9 @@
 import SavesDao from "./dao.js";
+import {
+  validateSavePost,
+  validateUnsavePost,
+  validateUserId,
+} from "../middleware/validation.js";
 
 export default function SaveRoutes(app) {
   const dao = SavesDao();
@@ -21,7 +26,7 @@ export default function SaveRoutes(app) {
       res.status(500).json({ error: "Failed to save post" });
     }
   };
-  app.post("/api/saves", savePost);
+  app.post("/api/saves", validateSavePost, savePost);
 
   // DELETE /api/saves - Unsave a post
   // Body: { postId: string }
@@ -51,7 +56,7 @@ export default function SaveRoutes(app) {
       res.status(500).json({ error: error.message || "Failed to unsave post" });
     }
   };
-  app.delete("/api/saves", unsavePost);
+  app.delete("/api/saves", validateUnsavePost, unsavePost);
 
   // GET /api/saves/user/:userId - Get all saved posts for a user
   // Auth: Required (must be own profile)
@@ -103,7 +108,7 @@ export default function SaveRoutes(app) {
       res.status(500).json({ error: "Failed to fetch saved posts" });
     }
   };
-  app.get("/api/saves/user/:userId", getSavedPosts);
+  app.get("/api/saves/user/:userId", validateUserId, getSavedPosts);
 
   return app;
 }
