@@ -19,6 +19,7 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import ConversationRoutes from "./conversations/routes.js";
 import ConversationsDao from "./conversations/dao.js";
 import MomentoAIRoutes from "./momentoai/routes.js";
+import UsersDao from "./users/dao.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -60,15 +61,11 @@ app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ limit: "5mb", extended: true }));
 
 UserRoutes(app);
-PostRoutes(app);
 SaveRoutes(app);
-FollowRoutes(app);
-ReviewRoutes(app);
 ExternalRoutes(app);
-NotificationRoutes(app);
 MomentoAIRoutes(app);
 
-// Initialize Socket.io before setting up conversation routes that need it
+// Initialize Socket.io before setting up routes that need it
 const httpServer = createServer(app);
 
 // Initialize Socket.io
@@ -80,7 +77,11 @@ const io = new Server(httpServer, {
   },
 });
 
-// Now pass io to ConversationRoutes
+// Pass io to routes that need real-time updates
+PostRoutes(app, io);
+FollowRoutes(app, io);
+ReviewRoutes(app, io);
+NotificationRoutes(app, io);
 ConversationRoutes(app, io);
 
 app.get("/", (req, res) => {
@@ -108,6 +109,14 @@ io.on("connection", (socket) => {
     if (userId) {
       socket.join(`user-${userId}`);
       userSockets.set(userId, socket.id);
+      
+      // Update lastLogin to track active users
+      try {
+        const usersDao = UsersDao();
+        await usersDao.updateUser(userId, { lastLogin: new Date() });
+      } catch (error) {
+        console.error("Error updating lastLogin on socket connection:", error);
+      }
     }
   });
 

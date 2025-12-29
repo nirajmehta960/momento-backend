@@ -6,7 +6,7 @@ import {
   validateUserId,
 } from "../middleware/validation.js";
 
-export default function FollowRoutes(app) {
+export default function FollowRoutes(app, io) {
   const dao = FollowsDao();
   const notificationsDao = NotificationsDao();
 
@@ -32,11 +32,38 @@ export default function FollowRoutes(app) {
 
       // Create notification (non-blocking)
       try {
-        await notificationsDao.createNotification({
+        const notification = await notificationsDao.createNotification({
           user: followingId,
           actor: currentUser._id,
           type: "FOLLOW",
         });
+
+        // Populate notification before emitting
+        const populatedNotification =
+          await notificationsDao.findNotificationById(notification._id);
+
+        // Emit real-time notification to the followed user
+        if (io && populatedNotification) {
+          io.to(`user-${followingId}`).emit(
+            "new-notification",
+            populatedNotification
+          );
+          io.to(`user-${followingId}`).emit("notification-count-updated");
+        }
+
+        // Emit follow update to both users for real-time profile updates
+        if (io) {
+          io.to(`user-${followingId}`).emit("follow-updated", {
+            userId: followingId,
+            followerId: currentUser._id,
+            action: "follow",
+          });
+          io.to(`user-${currentUser._id}`).emit("follow-updated", {
+            userId: currentUser._id,
+            followingId: followingId,
+            action: "follow",
+          });
+        }
       } catch (notifError) {}
 
       res.json(follow);
@@ -63,6 +90,21 @@ export default function FollowRoutes(app) {
       }
 
       await dao.unfollowUser(currentUser._id, followingId);
+
+      // Emit real-time unfollow update to both users
+      if (io) {
+        io.to(`user-${followingId}`).emit("follow-updated", {
+          userId: followingId,
+          followerId: currentUser._id,
+          action: "unfollow",
+        });
+        io.to(`user-${currentUser._id}`).emit("follow-updated", {
+          userId: currentUser._id,
+          followingId: followingId,
+          action: "unfollow",
+        });
+      }
+
       res.json({ message: "Unfollowed successfully" });
     } catch (error) {
       res.status(500).json({ error: "Failed to unfollow user" });
@@ -95,6 +137,23 @@ export default function FollowRoutes(app) {
     }
   };
   app.get("/api/follows/following/:userId", validateUserId, getFollowing);
+
+  // GET /api/follows/messagable/:userId - Get users who can be messaged (mutual follow)
+  // Auth: Not required
+  const getMessagableUsers = async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const messagableUsers = await dao.findMessagableUsers(userId);
+      res.json(messagableUsers);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch messagable users" });
+    }
+  };
+  app.get(
+    "/api/follows/messagable/:userId",
+    validateUserId,
+    getMessagableUsers
+  );
 
   return app;
 }
