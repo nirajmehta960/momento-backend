@@ -1,6 +1,6 @@
 {
   "name": "momento-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Momento Social Network - Backend API Server",
   "main": "index.js",
   "type": "module",
