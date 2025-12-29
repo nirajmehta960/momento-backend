@@ -1,5 +1,5 @@
 import FollowsDao from "./dao.js";
-import NotificationsDao from "../Notifications/dao.js";
+import NotificationsDao from "../notifications/dao.js";
 import {
   validateFollowUser,
   validateFollowingId,

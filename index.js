@@ -8,16 +8,17 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import UserRoutes from "./Users/routes.js";
-import PostRoutes from "./Posts/routes.js";
-import SaveRoutes from "./Saves/routes.js";
-import FollowRoutes from "./Follows/routes.js";
-import ReviewRoutes from "./Reviews/routes.js";
-import ExternalRoutes from "./External/routes.js";
-import NotificationRoutes from "./Notifications/routes.js";
+import UserRoutes from "./users/routes.js";
+import PostRoutes from "./posts/routes.js";
+import SaveRoutes from "./saves/routes.js";
+import FollowRoutes from "./follows/routes.js";
+import ReviewRoutes from "./reviews/routes.js";
+import ExternalRoutes from "./external/routes.js";
+import NotificationRoutes from "./notifications/routes.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
-import ConversationRoutes from "./Conversations/routes.js";
-import ConversationsDao from "./Conversations/dao.js";
+import ConversationRoutes from "./conversations/routes.js";
+import ConversationsDao from "./conversations/dao.js";
+import MomentoAIRoutes from "./momentoai/routes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,6 +66,7 @@ FollowRoutes(app);
 ReviewRoutes(app);
 ExternalRoutes(app);
 NotificationRoutes(app);
+MomentoAIRoutes(app);
 
 // Initialize Socket.io before setting up conversation routes that need it
 const httpServer = createServer(app);
@@ -93,13 +95,6 @@ app.use(errorHandler);
 
 // Socket.io middleware for session authentication
 io.use((socket, next) => {
-  // Get session from handshake
-  const session = socket.handshake.headers.cookie
-    ? socket.handshake.headers.cookie
-    : null;
-
-  // For now, we'll authenticate on connection event
-  // In production, you'd parse the session cookie here
   next();
 });
 
@@ -108,14 +103,11 @@ const userSockets = new Map();
 
 // Socket.io connection handling
 io.on("connection", (socket) => {
-  console.log("Client connected:", socket.id);
-
   // Join user room when authenticated
   socket.on("authenticate", async (userId) => {
     if (userId) {
       socket.join(`user-${userId}`);
       userSockets.set(userId, socket.id);
-      console.log(`User ${userId} authenticated and joined room`);
     }
   });
 
@@ -182,7 +174,6 @@ io.on("connection", (socket) => {
 
   // Handle disconnection
   socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
     // Remove from userSockets map
     for (const [userId, socketId] of userSockets.entries()) {
       if (socketId === socket.id) {
@@ -197,7 +188,4 @@ io.on("connection", (socket) => {
 export { io };
 
 const port = process.env.PORT || 4000;
-httpServer.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-  console.log(`WebSocket server ready for connections`);
-});
+httpServer.listen(port);
