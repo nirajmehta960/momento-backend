@@ -1,7 +1,9 @@
 import ConversationsDao from "./dao.js";
+import FollowsDao from "../follows/dao.js";
 
 export default function ConversationRoutes(app, io) {
   const dao = ConversationsDao();
+  const followsDao = FollowsDao();
 
   const sendMessage = async (req, res) => {
     try {
@@ -15,6 +17,18 @@ export default function ConversationRoutes(app, io) {
         return res
           .status(400)
           .json({ message: "Receiver and content required" });
+      }
+
+      // Check if users can message each other (mutual follow relationship)
+      const canMessage = await followsDao.canMessage(
+        currentUser._id,
+        receiverId
+      );
+      if (!canMessage) {
+        return res.status(403).json({
+          message:
+            "You can only message users who follow you or users you follow",
+        });
       }
 
       const message = await dao.createMessage({
