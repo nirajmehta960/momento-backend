@@ -1,6 +1,6 @@
 import ReviewsDao from "./dao.js";
-import NotificationsDao from "../Notifications/dao.js";
-import PostsDao from "../Posts/dao.js";
+import NotificationsDao from "../notifications/dao.js";
+import PostsDao from "../posts/dao.js";
 import {
   validateCreateReview,
   validateUpdateReview,

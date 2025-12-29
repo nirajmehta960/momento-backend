@@ -1,10 +1,10 @@
 import model from "./model.js";
 import { v4 as uuidv4 } from "uuid";
-import postModel from "../Posts/model.js";
-import reviewModel from "../Reviews/model.js";
-import saveModel from "../Saves/model.js";
-import followModel from "../Follows/model.js";
-import notificationModel from "../Notifications/model.js";
+import postModel from "../posts/model.js";
+import reviewModel from "../reviews/model.js";
+import saveModel from "../saves/model.js";
+import followModel from "../follows/model.js";
+import notificationModel from "../notifications/model.js";
 
 export default function UsersDao() {
   const createUser = async (user) => {
