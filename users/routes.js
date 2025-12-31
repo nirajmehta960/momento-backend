@@ -3,6 +3,18 @@ import upload from "../middleware/uploadBase64.js";
 import multer from "multer";
 import bcrypt from "bcryptjs";
 import { requireRole } from "../middleware/auth.js";
+import { cacheMiddleware, invalidateCache } from "../middleware/cache.js";
+import { getCacheKey } from "../utils/cache.js";
+import {
+  ERROR_MESSAGES,
+  ERROR_CODES,
+  createErrorResponse,
+} from "../constants/errorMessages.js";
+import {
+  sendSuccessResponse,
+  sendErrorResponse,
+} from "../utils/responseFormatter.js";
+import { processImage, bufferToBase64 } from "../utils/imageOptimizer.js";
 
 export default function UserRoutes(app) {
   const dao = UsersDao();
@@ -11,13 +23,21 @@ export default function UserRoutes(app) {
     try {
       const existingUser = await dao.findUserByUsername(req.body.username);
       if (existingUser) {
-        res.status(400).json({ message: "Username already taken" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.USERNAME_TAKEN,
+          400,
+          ERROR_CODES.ALREADY_EXISTS
+        );
       }
       const existingEmail = await dao.findUserByEmail(req.body.email);
       if (existingEmail) {
-        res.status(400).json({ message: "Email already registered" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.EMAIL_REGISTERED,
+          400,
+          ERROR_CODES.ALREADY_EXISTS
+        );
       }
       const hashedPassword = await bcrypt.hash(req.body.password, 10);
       const userData = {
@@ -27,9 +47,14 @@ export default function UserRoutes(app) {
       };
       const currentUser = await dao.createUser(userData);
       req.session["currentUser"] = currentUser;
-      res.json(currentUser);
+      sendSuccessResponse(res, currentUser, 200);
     } catch (error) {
-      res.status(500).json({ error: "Failed to sign up user" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.SIGNUP_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.post("/api/users/signup", signup);
@@ -39,10 +64,12 @@ export default function UserRoutes(app) {
       const { email, password } = req.body;
 
       if (!email || !password) {
-        res
-          .status(400)
-          .json({ message: "Email/Username and password are required" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.REQUIRED_FIELDS_MISSING,
+          400,
+          ERROR_CODES.MISSING_FIELDS
+        );
       }
 
       let currentUser = null;
@@ -54,10 +81,12 @@ export default function UserRoutes(app) {
       }
 
       if (!currentUser) {
-        res
-          .status(401)
-          .json({ message: "Invalid credentials. Please try again." });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.INVALID_CREDENTIALS,
+          401,
+          ERROR_CODES.INVALID_CREDENTIALS
+        );
       }
 
       const isPasswordValid = await bcrypt.compare(
@@ -68,15 +97,27 @@ export default function UserRoutes(app) {
       if (isPasswordValid) {
         await dao.updateUser(currentUser._id, { lastLogin: new Date() });
         const updatedUser = await dao.findUserById(currentUser._id);
+
+        // Invalidate user cache on login (lastLogin changed)
+        invalidateCache("user", currentUser._id);
+
         req.session["currentUser"] = updatedUser;
-        res.json(updatedUser);
+        sendSuccessResponse(res, updatedUser, 200);
       } else {
-        res
-          .status(401)
-          .json({ message: "Invalid credentials. Please try again." });
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.INVALID_CREDENTIALS,
+          401,
+          ERROR_CODES.INVALID_CREDENTIALS
+        );
       }
     } catch (error) {
-      res.status(500).json({ error: "Failed to sign in user" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.SIGNIN_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.post("/api/users/signin", signin);
@@ -86,7 +127,12 @@ export default function UserRoutes(app) {
       req.session.destroy();
       res.sendStatus(200);
     } catch (error) {
-      res.status(500).json({ error: "Failed to sign out" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.SIGNOUT_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.post("/api/users/signout", signout);
@@ -95,12 +141,16 @@ export default function UserRoutes(app) {
     try {
       const currentUser = req.session["currentUser"];
       if (!currentUser) {
-        res.status(200).json(null);
-        return;
+        return sendSuccessResponse(res, null, 200);
       }
-      res.json(currentUser);
+      sendSuccessResponse(res, currentUser, 200);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch profile" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.PROFILE_FETCH_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.post("/api/users/profile", profile);
@@ -127,9 +177,14 @@ export default function UserRoutes(app) {
         return userObj;
       });
 
-      res.json(sanitizedUsers);
+      sendSuccessResponse(res, sanitizedUsers, 200, sanitizedUsers.length);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch users" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.USERS_FETCH_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.get("/api/users", findAllUsers);
@@ -139,8 +194,12 @@ export default function UserRoutes(app) {
       const { userId } = req.params;
       const user = await dao.findUserById(userId);
       if (!user) {
-        res.status(404).json({ message: "User not found" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.USER_NOT_FOUND,
+          404,
+          ERROR_CODES.USER_NOT_FOUND
+        );
       }
 
       const currentUser = req.session["currentUser"];
@@ -159,36 +218,77 @@ export default function UserRoutes(app) {
         delete userResponse.password;
       }
 
-      res.json(userResponse);
+      sendSuccessResponse(res, userResponse, 200);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch user" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.USER_FETCH_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
-  app.get("/api/users/:userId", findUserById);
+  app.get(
+    "/api/users/:userId",
+    cacheMiddleware({
+      prefix: "user",
+      keyGenerator: (req) => {
+        return getCacheKey("user", req.params.userId);
+      },
+      ttl: 5 * 60 * 1000, // 5 minutes
+    }),
+    findUserById
+  );
 
   const uploadProfileImage = async (req, res) => {
     try {
       if (!req.file) {
-        res.status(400).json({ error: "No file uploaded" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.NO_FILE_UPLOADED,
+          400,
+          ERROR_CODES.MISSING_FIELDS
+        );
       }
 
-      const imageData = req.file.buffer.toString("base64");
-      const imageMimeType = req.file.mimetype;
+      // Process and optimize image
+      const { optimized, thumbnail } = await processImage(req.file.buffer, {
+        convertToWebP: true,
+      });
+
       const imageId = `user-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
       const serverUrl =
         process.env.SERVER_URL ||
         `http://localhost:${process.env.PORT || 4000}`;
+
+      const imageData = bufferToBase64(optimized.buffer);
+      const imageMimeType = optimized.mimeType;
       const imageUrl = `${serverUrl}/api/images/user/${imageId}`;
 
-      res.json({
-        imageUrl,
-        imageId,
-        imageData,
-        imageMimeType,
-      });
+      const thumbnailData = bufferToBase64(thumbnail.buffer);
+      const thumbnailMimeType = thumbnail.mimeType;
+      const thumbnailUrl = `${serverUrl}/api/images/user/${imageId}/thumbnail`;
+
+      sendSuccessResponse(
+        res,
+        {
+          imageUrl,
+          imageId,
+          imageData,
+          imageMimeType,
+          thumbnailUrl,
+          thumbnailData,
+          thumbnailMimeType,
+        },
+        200
+      );
     } catch (error) {
-      res.status(500).json({ error: "Failed to upload image" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.FILE_UPLOAD_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.post(
@@ -223,6 +323,8 @@ export default function UserRoutes(app) {
         userUpdates.password = await bcrypt.hash(userUpdates.password, 10);
       }
 
+      // Note: Image optimization is handled in the upload endpoint
+      // This route receives already-optimized image data from the frontend
       if (
         userUpdates.imageData &&
         userUpdates.imageId &&
@@ -232,21 +334,38 @@ export default function UserRoutes(app) {
           process.env.SERVER_URL ||
           `http://localhost:${process.env.PORT || 4000}`;
         userUpdates.imageUrl = `${serverUrl}/api/images/user/${userUpdates.imageId}`;
+        // Thumbnail URL if provided
+        if (userUpdates.thumbnailData && userUpdates.thumbnailMimeType) {
+          userUpdates.thumbnailUrl = `${serverUrl}/api/images/user/${userUpdates.imageId}/thumbnail`;
+        }
       }
 
       await dao.updateUser(userId, userUpdates);
       const updatedUser = await dao.findUserById(userId);
       if (!updatedUser) {
-        res.status(404).json({ message: "User not found" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.USER_NOT_FOUND,
+          404,
+          ERROR_CODES.USER_NOT_FOUND
+        );
       }
+
+      // Invalidate user cache
+      invalidateCache("user", userId);
+
       const currentUser = req.session["currentUser"];
       if (currentUser && currentUser._id === userId) {
         req.session["currentUser"] = updatedUser;
       }
-      res.json(updatedUser);
+      sendSuccessResponse(res, updatedUser, 200);
     } catch (error) {
-      res.status(500).json({ error: "Failed to update user" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.USER_UPDATE_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.put("/api/users/:userId", updateUser);
@@ -254,9 +373,14 @@ export default function UserRoutes(app) {
   const createUser = async (req, res) => {
     try {
       const user = await dao.createUser(req.body);
-      res.json(user);
+      sendSuccessResponse(res, user, 201);
     } catch (error) {
-      res.status(500).json({ error: "Failed to create user" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.USER_CREATE_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.post("/api/users", createUser);
@@ -270,16 +394,22 @@ export default function UserRoutes(app) {
       const currentUser = req.session["currentUser"];
 
       if (!currentUser) {
-        res.status(401).json({ message: "You must be logged in" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.AUTH_REQUIRED,
+          401,
+          ERROR_CODES.AUTH_REQUIRED
+        );
       }
 
       // Allow deletion if user is deleting their own account OR if current user is ADMIN
       if (currentUser._id !== userId && currentUser.role !== "ADMIN") {
-        res
-          .status(403)
-          .json({ message: "You can only delete your own account" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.FORBIDDEN,
+          403,
+          ERROR_CODES.FORBIDDEN
+        );
       }
 
       // Destroy session only if user is deleting their own account
@@ -290,9 +420,14 @@ export default function UserRoutes(app) {
       // Cascading delete: Removes all related data (posts, reviews, saves, follows, notifications)
       // Works for both self-deletion and admin deletion
       const status = await dao.deleteUser(userId);
-      res.json(status);
+      sendSuccessResponse(res, status, 200);
     } catch (error) {
-      res.status(500).json({ error: "Failed to delete user" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.USER_DELETE_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.delete("/api/users/:userId", deleteUser);
@@ -300,9 +435,14 @@ export default function UserRoutes(app) {
   const getAllUsers = async (req, res) => {
     try {
       const users = await dao.findAllUsers();
-      res.json(users);
+      sendSuccessResponse(res, users, 200, users.length);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch users" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.USERS_FETCH_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.get("/api/admin/users", requireRole(["ADMIN"]), getAllUsers);
@@ -312,18 +452,63 @@ export default function UserRoutes(app) {
       const { imageId } = req.params;
       const user = await dao.findUserByImageId(imageId);
       if (!user || !user.imageData) {
-        res.status(404).json({ message: "Image not found" });
-        return;
+        return sendErrorResponse(
+          res,
+          "Image not found",
+          404,
+          ERROR_CODES.RESOURCE_NOT_FOUND
+        );
       }
       const imageBuffer = Buffer.from(user.imageData, "base64");
-      res.set("Content-Type", user.imageMimeType || "image/jpeg");
+      res.set("Content-Type", user.imageMimeType || "image/webp");
       res.set("Cache-Control", "public, max-age=31536000, immutable");
       res.send(imageBuffer);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch image" });
+      sendErrorResponse(
+        res,
+        "Failed to fetch image",
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.get("/api/images/user/:imageId", getUserImage);
+
+  // GET /api/images/user/:imageId/thumbnail - Serve user thumbnail
+  // Auth: Not required
+  const getUserThumbnail = async (req, res) => {
+    try {
+      const { imageId } = req.params;
+      const user = await dao.findUserByImageId(imageId);
+      if (!user || !user.thumbnailData) {
+        // Fallback to full image if thumbnail not available
+        if (user && user.imageData) {
+          const imageBuffer = Buffer.from(user.imageData, "base64");
+          res.set("Content-Type", user.imageMimeType || "image/webp");
+          res.set("Cache-Control", "public, max-age=31536000, immutable");
+          return res.send(imageBuffer);
+        }
+        return sendErrorResponse(
+          res,
+          "Thumbnail not found",
+          404,
+          ERROR_CODES.RESOURCE_NOT_FOUND
+        );
+      }
+      const thumbnailBuffer = Buffer.from(user.thumbnailData, "base64");
+      res.set("Content-Type", user.thumbnailMimeType || "image/webp");
+      res.set("Cache-Control", "public, max-age=31536000, immutable");
+      res.send(thumbnailBuffer);
+    } catch (error) {
+      sendErrorResponse(
+        res,
+        "Failed to fetch thumbnail",
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
+    }
+  };
+  app.get("/api/images/user/:imageId/thumbnail", getUserThumbnail);
 
   return app;
 }

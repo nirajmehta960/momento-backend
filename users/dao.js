@@ -98,51 +98,48 @@ export default function UsersDao() {
   const deleteUser = async (id) => {
     try {
       // Cascading delete: Remove all data related to this user
-      
+
       // 1. Get all posts created by the user (before deletion)
       const userPosts = await postModel.find({ creator: id }).select("_id");
       const postIds = userPosts.map((post) => post._id);
-      
+
       // 2. Delete all posts created by the user
       await postModel.deleteMany({ creator: id });
-      
+
       // 3. Delete all saves for posts created by the user
       if (postIds.length > 0) {
         await saveModel.deleteMany({ post: { $in: postIds } });
       }
-      
+
       // 4. Delete all reviews for posts created by the user
       if (postIds.length > 0) {
         await reviewModel.deleteMany({ post: { $in: postIds } });
       }
-      
+
       // 5. Delete all notifications for posts created by the user
       if (postIds.length > 0) {
         await notificationModel.deleteMany({ post: { $in: postIds } });
       }
-      
+
       // 6. Remove user from all posts' likes arrays
-      await postModel.updateMany(
-        { likes: id },
-        { $pull: { likes: id } }
-      );
-      
+      await postModel.updateMany({ likes: id }, { $pull: { likes: id } });
+
       // 7. Delete all reviews created by the user
       await reviewModel.deleteMany({ user: id });
-      
+
       // 8. Delete all saves by the user
       await saveModel.deleteMany({ user: id });
-      
+
       // 9. Delete all follows where user is follower or following
       await followModel.deleteMany({
         $or: [{ follower: id }, { following: id }],
       });
-      
+
       // 10. Delete all notifications where user is recipient or actor
       await notificationModel.deleteMany({
         $or: [{ user: id }, { actor: id }],
       });
-      
+
       // 11. Finally, delete the user
       return await model.findByIdAndDelete(id);
     } catch (error) {

@@ -109,9 +109,27 @@ export default function NotificationsDao() {
     }
   };
 
+  // Find and populate a notification by ID (for real-time updates)
+  const findNotificationById = async (notificationId) => {
+    try {
+      return await model
+        .findById(notificationId)
+        .populate("actor", "name username imageUrl imageId")
+        .populate("post", "_id caption imageUrl imageId createdAt")
+        .populate({
+          path: "review",
+          select: "_id review rating createdAt",
+        })
+        .lean();
+    } catch (error) {
+      throw error;
+    }
+  };
+
   return {
     createNotification,
     findNotificationsByUser,
+    findNotificationById,
     findUnreadNotificationsByUser,
     markAsRead,
     markAllAsRead,

@@ -9,6 +9,9 @@ const postSchema = new mongoose.Schema(
     imageId: String,
     imageData: String, // base64, excluded in queries
     imageMimeType: String,
+    thumbnailUrl: String, // served via /api/images/post/:imageId/thumbnail
+    thumbnailData: String, // base64 thumbnail, excluded in queries
+    thumbnailMimeType: String,
     location: String,
     tags: [String],
     likes: [{ type: String, ref: "UserModel" }], // embedded array of user IDs

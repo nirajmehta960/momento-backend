@@ -4,7 +4,7 @@ import {
   validatePagination,
 } from "../middleware/validation.js";
 
-export default function NotificationRoutes(app) {
+export default function NotificationRoutes(app, io) {
   const dao = NotificationsDao();
 
   // GET /api/notifications - Get all notifications for current user

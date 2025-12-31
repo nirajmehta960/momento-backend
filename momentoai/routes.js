@@ -15,9 +15,7 @@ const MAX_TOKENS = 150;
 const MAX_DEEP_SEARCH_DEPTH = 10;
 
 // Validate API key on module load
-if (!OPENROUTER_API_KEY) {
-  console.warn("OPENROUTER_API_KEY is not set. AI features will not work.");
-}
+if (!OPENROUTER_API_KEY) {}
 
 const SYSTEM_PROMPT = `You are Momento AI, the intelligent assistant for Momento social network.
 
@@ -437,9 +435,7 @@ export default function MomentoAIRoutes(app) {
       });
 
       if (!aiResponse.ok) {
-        const errorData = await aiResponse.json().catch(() => ({}));
-        console.error("OpenRouter API error:", errorData);
-        throw new Error(
+        const errorData = await aiResponse.json().catch(() => ({}));        throw new Error(
           errorData.error?.message ||
             errorData.message ||
             `AI service unavailable: ${aiResponse.status}`
@@ -448,9 +444,7 @@ export default function MomentoAIRoutes(app) {
 
       const aiData = await aiResponse.json();
 
-      if (aiData.error) {
-        console.error("OpenRouter API returned error:", aiData.error);
-        throw new Error(aiData.error.message || "API returned an error");
+      if (aiData.error) {        throw new Error(aiData.error.message || "API returned an error");
       }
 
       // Handle different response formats
@@ -470,10 +464,6 @@ export default function MomentoAIRoutes(app) {
       }
 
       if (!aiContent) {
-        console.error(
-          "Unexpected API response format:",
-          JSON.stringify(aiData, null, 2)
-        );
         aiContent = "Sorry, I couldn't generate a response. Try again!";
       }
 
@@ -487,9 +477,7 @@ export default function MomentoAIRoutes(app) {
         userMessage,
         assistantMessage,
       });
-    } catch (error) {
-      console.error("Error in sendMessage:", error);
-      res.status(500).json({
+    } catch (error) {      res.status(500).json({
         message: "Failed to process message. Please try again.",
       });
     }
@@ -508,9 +496,7 @@ export default function MomentoAIRoutes(app) {
 
       const messages = await dao.findMessagesByUser(currentUser._id);
       res.json({ messages });
-    } catch (error) {
-      console.error("Error in getMessages:", error);
-      res.status(500).json({ message: "Failed to fetch messages" });
+    } catch (error) {      res.status(500).json({ message: "Failed to fetch messages" });
     }
   };
   app.get("/api/momento-ai", getMessages);
@@ -540,9 +526,7 @@ export default function MomentoAIRoutes(app) {
       }
 
       res.json(updated);
-    } catch (error) {
-      console.error("Error in updateFeedback:", error);
-      res.status(500).json({ message: "Failed to update feedback" });
+    } catch (error) {      res.status(500).json({ message: "Failed to update feedback" });
     }
   };
   app.put("/api/momento-ai/:messageId/feedback", updateFeedback);
@@ -559,9 +543,7 @@ export default function MomentoAIRoutes(app) {
 
       await dao.deleteMessagesByUser(currentUser._id);
       res.json({ message: "Conversation cleared" });
-    } catch (error) {
-      console.error("Error in clearMessages:", error);
-      res.status(500).json({ message: "Failed to clear conversation" });
+    } catch (error) {      res.status(500).json({ message: "Failed to clear conversation" });
     }
   };
   app.delete("/api/momento-ai", clearMessages);

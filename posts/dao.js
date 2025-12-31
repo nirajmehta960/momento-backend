@@ -15,24 +15,88 @@ export default function PostsDao() {
   // Get all posts with optional sorting and pagination (optimized with database sorting)
   const findAllPosts = async (sortBy = "latest", limit = null, skip = 0) => {
     try {
+      // Use aggregation pipeline for mostLiked sorting (database-level optimization)
+      if (sortBy === "mostLiked") {
+        const limitNum = limit && limit > 0 ? parseInt(limit) : null;
+        const skipNum = skip > 0 ? parseInt(skip) : 0;
+
+        const pipeline = [
+          // Add field for likes count
+          {
+            $addFields: {
+              likesCount: { $size: { $ifNull: ["$likes", []] } },
+            },
+          },
+          // Sort by likes count (descending), then by createdAt (descending)
+          {
+            $sort: { likesCount: -1, createdAt: -1 },
+          },
+          // Apply pagination
+          ...(skipNum > 0 ? [{ $skip: skipNum }] : []),
+          ...(limitNum && limitNum > 0 ? [{ $limit: limitNum }] : []),
+          // Populate creator field
+          {
+            $lookup: {
+              from: "users",
+              localField: "creator",
+              foreignField: "_id",
+              as: "creator",
+            },
+          },
+          {
+            $unwind: {
+              path: "$creator",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          // Project only needed fields (exclude imageData)
+          {
+            $project: {
+              _id: 1,
+              creator: {
+                _id: "$creator._id",
+                name: "$creator.name",
+                username: "$creator.username",
+                email: "$creator.email",
+                imageUrl: "$creator.imageUrl",
+                imageId: "$creator.imageId",
+                bio: "$creator.bio",
+                role: "$creator.role",
+                createdAt: "$creator.createdAt",
+                updatedAt: "$creator.updatedAt",
+                lastLogin: "$creator.lastLogin",
+              },
+              caption: 1,
+              imageUrl: 1,
+              imageId: 1,
+              location: 1,
+              tags: 1,
+              likes: 1,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          },
+        ];
+
+        const posts = await model.aggregate(pipeline);
+        return posts;
+      }
+
+      // For other sort options, use regular query (more efficient for simple sorts)
       let sortQuery = { createdAt: -1 };
 
       if (sortBy === "latest") {
         sortQuery = { createdAt: -1 };
       } else if (sortBy === "oldest") {
         sortQuery = { createdAt: 1 };
-      } else if (sortBy === "mostLiked") {
-        // For mostLiked, we need to sort by likes array length
-        // MongoDB doesn't support sorting by array length directly, so we'll use aggregation
-        // For now, we'll fetch all and sort in memory, but with limit/skip applied first
-        sortQuery = { createdAt: -1 }; // Fallback, will sort by likes after
       }
 
       let query = model
         .find()
         .populate("creator", "-imageData")
         .select("-imageData")
-        .sort(sortQuery);
+        .sort(sortQuery)
+        .lean(); // Return plain JavaScript objects instead of Mongoose documents
 
       // Apply pagination
       if (skip > 0) {
@@ -43,20 +107,6 @@ export default function PostsDao() {
       }
 
       const posts = await query;
-
-      // For mostLiked, sort by likes count (in-memory for now)
-      // TODO: Consider using aggregation pipeline for better performance at scale
-      if (sortBy === "mostLiked") {
-        return posts.sort((a, b) => {
-          const aLikes = (a.likes || []).length;
-          const bLikes = (b.likes || []).length;
-          if (aLikes !== bLikes) {
-            return bLikes - aLikes;
-          }
-          return new Date(b.createdAt) - new Date(a.createdAt);
-        });
-      }
-
       return posts;
     } catch (error) {
       throw error;
@@ -69,7 +119,8 @@ export default function PostsDao() {
       return await model
         .findById(postId)
         .populate("creator", "-imageData")
-        .select("-imageData");
+        .select("-imageData")
+        .lean(); // Return plain JavaScript object instead of Mongoose document
     } catch (error) {
       throw error;
     }
@@ -82,7 +133,8 @@ export default function PostsDao() {
         .find({ creator: userId })
         .populate("creator", "-imageData")
         .select("-imageData")
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .lean(); // Return plain JavaScript objects instead of Mongoose documents
 
       if (skip > 0) {
         query = query.skip(skip);
@@ -137,7 +189,7 @@ export default function PostsDao() {
         throw new Error("Post not found");
       }
 
-      const updatedPost = await model.findOne({ _id: postId });
+      const updatedPost = await model.findOne({ _id: postId }).lean(); // Return plain JavaScript object
       return updatedPost;
     } catch (error) {
       throw error;
@@ -147,7 +199,7 @@ export default function PostsDao() {
   // Find post by imageId (used for serving images)
   const findPostByImageId = async (imageId) => {
     try {
-      return await model.findOne({ imageId });
+      return await model.findOne({ imageId }).lean(); // Return plain JavaScript object
     } catch (error) {
       throw error;
     }
@@ -170,7 +222,8 @@ export default function PostsDao() {
         })
         .populate("creator", "-imageData")
         .select("-imageData")
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .lean(); // Return plain JavaScript objects instead of Mongoose documents
 
       if (skip > 0) {
         query = query.skip(skip);
@@ -192,7 +245,8 @@ export default function PostsDao() {
         .find({ likes: userId })
         .populate("creator", "-imageData")
         .select("-imageData")
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .lean(); // Return plain JavaScript objects instead of Mongoose documents
 
       if (skip > 0) {
         query = query.skip(skip);

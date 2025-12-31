@@ -13,8 +13,16 @@ import {
   validatePostId,
   validateUserId,
 } from "../middleware/validation.js";
+import { cacheMiddleware, invalidateCache } from "../middleware/cache.js";
+import { getCacheKey } from "../utils/cache.js";
+import { ERROR_MESSAGES, ERROR_CODES } from "../constants/errorMessages.js";
+import {
+  sendSuccessResponse,
+  sendErrorResponse,
+} from "../utils/responseFormatter.js";
+import { processImage, bufferToBase64 } from "../utils/imageOptimizer.js";
 
-export default function PostRoutes(app) {
+export default function PostRoutes(app, io) {
   const dao = PostsDao();
   const notificationsDao = NotificationsDao();
 
@@ -24,25 +32,43 @@ export default function PostRoutes(app) {
   const createPost = async (req, res) => {
     try {
       if (!req.file) {
-        res.status(400).json({ error: "No file uploaded" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.NO_FILE_UPLOADED,
+          400,
+          ERROR_CODES.MISSING_FIELDS
+        );
       }
 
       const currentUser = req.session["currentUser"];
       if (!currentUser) {
-        res
-          .status(401)
-          .json({ message: "You must be logged in to create a post" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.AUTH_REQUIRED,
+          401,
+          ERROR_CODES.AUTH_REQUIRED
+        );
       }
 
-      const imageData = req.file.buffer.toString("base64");
-      const imageMimeType = req.file.mimetype;
+      // Process and optimize image
+      const { optimized, thumbnail } = await processImage(req.file.buffer, {
+        convertToWebP: true,
+      });
+
       const imageId = `post-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
       const serverUrl =
         process.env.SERVER_URL ||
         `http://localhost:${process.env.PORT || 4000}`;
+
+      // Store optimized image as base64 (for backward compatibility)
+      const imageData = bufferToBase64(optimized.buffer);
+      const imageMimeType = optimized.mimeType;
       const imageUrl = `${serverUrl}/api/images/post/${imageId}`;
+
+      // Store thumbnail as base64
+      const thumbnailData = bufferToBase64(thumbnail.buffer);
+      const thumbnailMimeType = thumbnail.mimeType;
+      const thumbnailUrl = `${serverUrl}/api/images/post/${imageId}/thumbnail`;
 
       const tags = req.body.tags
         ? req.body.tags
@@ -58,6 +84,9 @@ export default function PostRoutes(app) {
         imageId,
         imageData,
         imageMimeType,
+        thumbnailUrl,
+        thumbnailData,
+        thumbnailMimeType,
         location: req.body.location || "",
         tags,
         likes: [],
@@ -65,9 +94,35 @@ export default function PostRoutes(app) {
 
       const newPost = await dao.createPost(postData);
       const populatedPost = await dao.findPostById(newPost._id);
-      res.json(populatedPost);
+
+      // Invalidate posts cache (new post added)
+      invalidateCache("posts");
+
+      // Emit real-time post creation to all followers
+      if (io) {
+        try {
+          const followsDao = FollowsDao();
+          const followers = await followsDao.findFollowers(currentUser._id);
+          // Emit to all followers
+          followers.forEach((follower) => {
+            const followerId = follower._id || follower.id;
+            if (followerId) {
+              io.to(`user-${followerId}`).emit("new-post", populatedPost);
+            }
+          });
+        } catch (error) {
+          // Non-blocking: real-time update failure shouldn't break post creation
+        }
+      }
+
+      sendSuccessResponse(res, populatedPost, 201);
     } catch (error) {
-      res.status(500).json({ error: "Failed to create post" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.POST_CREATE_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.post(
@@ -104,12 +159,32 @@ export default function PostRoutes(app) {
       // Use optimized findAllPosts with pagination
       const posts = await dao.findAllPosts(sortOption, limitNum, skipNum);
 
-      res.json({ documents: posts });
+      sendSuccessResponse(res, posts, 200);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch posts" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.POSTS_FETCH_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
-  app.get("/api/posts", validatePagination, getRecentPosts);
+  app.get(
+    "/api/posts",
+    validatePagination,
+    cacheMiddleware({
+      prefix: "posts",
+      keyGenerator: (req) => {
+        const { limit, skip, sortBy } = req.query;
+        return getCacheKey(
+          "posts",
+          `${sortBy || "latest"}:${limit || 20}:${skip || 0}`
+        );
+      },
+      ttl: 2 * 60 * 1000, // 2 minutes (posts change more frequently)
+    }),
+    getRecentPosts
+  );
 
   // GET /api/posts/search - Search posts by caption, location, or tags
   // Query params: ?searchTerm=query
@@ -118,16 +193,25 @@ export default function PostRoutes(app) {
     try {
       const { searchTerm, limit, skip } = req.query;
       if (!searchTerm) {
-        res.status(400).json({ error: "Search term is required" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.REQUIRED_FIELDS_MISSING,
+          400,
+          ERROR_CODES.MISSING_FIELDS
+        );
       }
       const limitNum = limit ? parseInt(limit) : 20; // Default limit of 20
       const skipNum = skip ? parseInt(skip) : 0;
 
       const posts = await dao.searchPosts(searchTerm, limitNum, skipNum);
-      res.json({ documents: posts });
+      sendSuccessResponse(res, posts, 200);
     } catch (error) {
-      res.status(500).json({ error: "Failed to search posts" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.POST_SEARCH_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.get("/api/posts/search", validateSearch, searchPosts);
@@ -179,23 +263,84 @@ export default function PostRoutes(app) {
         query = query.limit(limitNum);
       }
 
-      let posts = await query;
-
-      // For mostLiked, sort by likes count (in-memory for now)
+      // For mostLiked, use aggregation pipeline for database-level sorting
       if (sortOption === "mostLiked") {
-        posts = posts.sort((a, b) => {
-          const aLikes = (a.likes || []).length;
-          const bLikes = (b.likes || []).length;
-          if (aLikes !== bLikes) {
-            return bLikes - aLikes;
-          }
-          return new Date(b.createdAt) - new Date(a.createdAt);
-        });
-      }
+        const pipeline = [
+          // Match posts from feed users
+          {
+            $match: { creator: { $in: feedUserIds } },
+          },
+          // Add field for likes count
+          {
+            $addFields: {
+              likesCount: { $size: { $ifNull: ["$likes", []] } },
+            },
+          },
+          // Sort by likes count (descending), then by createdAt (descending)
+          {
+            $sort: { likesCount: -1, createdAt: -1 },
+          },
+          // Apply pagination
+          ...(skipNum > 0 ? [{ $skip: skipNum }] : []),
+          ...(limitNum > 0 ? [{ $limit: limitNum }] : []),
+          // Populate creator field
+          {
+            $lookup: {
+              from: "users",
+              localField: "creator",
+              foreignField: "_id",
+              as: "creator",
+            },
+          },
+          {
+            $unwind: {
+              path: "$creator",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          // Project only needed fields (exclude imageData)
+          {
+            $project: {
+              _id: 1,
+              creator: {
+                _id: "$creator._id",
+                name: "$creator.name",
+                username: "$creator.username",
+                email: "$creator.email",
+                imageUrl: "$creator.imageUrl",
+                imageId: "$creator.imageId",
+                bio: "$creator.bio",
+                role: "$creator.role",
+                createdAt: "$creator.createdAt",
+                updatedAt: "$creator.updatedAt",
+                lastLogin: "$creator.lastLogin",
+              },
+              caption: 1,
+              imageUrl: 1,
+              imageId: 1,
+              location: 1,
+              tags: 1,
+              likes: 1,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          },
+        ];
 
-      res.json({ documents: posts });
+        const posts = await PostsModel.aggregate(pipeline);
+        sendSuccessResponse(res, posts, 200, posts.length);
+      } else {
+        // For other sort options, use regular query
+        let posts = await query;
+        sendSuccessResponse(res, posts, 200, posts.length);
+      }
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch feed" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.POSTS_FETCH_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.get("/api/posts/feed", validatePagination, getFeed);
@@ -207,15 +352,35 @@ export default function PostRoutes(app) {
       const { postId } = req.params;
       const post = await dao.findPostById(postId);
       if (!post) {
-        res.status(404).json({ message: "Post not found" });
-        return;
+        return sendErrorResponse(
+          res,
+          ERROR_MESSAGES.POST_NOT_FOUND,
+          404,
+          ERROR_CODES.POST_NOT_FOUND
+        );
       }
-      res.json(post);
+      sendSuccessResponse(res, post, 200);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch post" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.POST_FETCH_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
-  app.get("/api/posts/:postId", validatePostId, getPostById);
+  app.get(
+    "/api/posts/:postId",
+    validatePostId,
+    cacheMiddleware({
+      prefix: "post",
+      keyGenerator: (req) => {
+        return getCacheKey("post", req.params.postId);
+      },
+      ttl: 3 * 60 * 1000, // 3 minutes
+    }),
+    getPostById
+  );
 
   const getUserPosts = async (req, res) => {
     try {
@@ -225,9 +390,14 @@ export default function PostRoutes(app) {
       const skipNum = skip ? parseInt(skip) : 0;
 
       const posts = await dao.findPostsByCreator(userId, limitNum, skipNum);
-      res.json({ documents: posts });
+      sendSuccessResponse(res, posts, 200, posts.length);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch user posts" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.POSTS_FETCH_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.get(
@@ -261,18 +431,23 @@ export default function PostRoutes(app) {
       }
 
       const postUpdates = { ...req.body };
+
+      // Images cannot be changed when editing a post
+      // Only caption, location, and tags can be updated
+      // Ignore any file uploads during update
       if (req.file) {
-        const imageData = req.file.buffer.toString("base64");
-        const imageMimeType = req.file.mimetype;
-        const imageId = `post-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-        const serverUrl =
-          process.env.SERVER_URL ||
-          `http://localhost:${process.env.PORT || 4000}`;
-        postUpdates.imageUrl = `${serverUrl}/api/images/post/${imageId}`;
-        postUpdates.imageId = imageId;
-        postUpdates.imageData = imageData;
-        postUpdates.imageMimeType = imageMimeType;
+        // Silently ignore file uploads during post updates
+        // Users can only edit caption, location, and tags
       }
+
+      // Remove any image-related fields from updates to prevent accidental changes
+      delete postUpdates.imageUrl;
+      delete postUpdates.imageId;
+      delete postUpdates.imageData;
+      delete postUpdates.imageMimeType;
+      delete postUpdates.thumbnailUrl;
+      delete postUpdates.thumbnailData;
+      delete postUpdates.thumbnailMimeType;
 
       if (postUpdates.tags && typeof postUpdates.tags === "string") {
         postUpdates.tags = postUpdates.tags
@@ -283,9 +458,19 @@ export default function PostRoutes(app) {
 
       await dao.updatePost(postId, postUpdates);
       const updatedPost = await dao.findPostById(postId);
-      res.json(updatedPost);
+
+      // Invalidate post cache
+      invalidateCache("post", postId);
+      invalidateCache("posts"); // Also invalidate posts list
+
+      sendSuccessResponse(res, updatedPost, 200);
     } catch (error) {
-      res.status(500).json({ error: "Failed to update post" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.POST_UPDATE_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.put(
@@ -335,9 +520,19 @@ export default function PostRoutes(app) {
       }
 
       await dao.deletePost(postId);
-      res.json({ message: "Post deleted successfully" });
+
+      // Invalidate post cache
+      invalidateCache("post", postId);
+      invalidateCache("posts"); // Also invalidate posts list
+
+      sendSuccessResponse(res, { message: "Post deleted successfully" }, 200);
     } catch (error) {
-      res.status(500).json({ error: "Failed to delete post" });
+      sendErrorResponse(
+        res,
+        ERROR_MESSAGES.POST_DELETE_FAILED,
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.delete("/api/posts/:postId", validatePostId, deletePost);
@@ -397,15 +592,43 @@ export default function PostRoutes(app) {
       // Create notification when user likes a post (not their own)
       if (isLiking && populatedPost.creator._id !== currentUser._id) {
         try {
-          await notificationsDao.createNotification({
+          const notification = await notificationsDao.createNotification({
             user: populatedPost.creator._id,
             actor: currentUser._id,
             type: "LIKE",
             post: postId,
           });
+
+          // Populate notification before emitting
+          const populatedNotification =
+            await notificationsDao.findNotificationById(notification._id);
+
+          // Emit real-time notification to the post creator
+          if (io && populatedNotification) {
+            io.to(`user-${populatedPost.creator._id}`).emit(
+              "new-notification",
+              populatedNotification
+            );
+            io.to(`user-${populatedPost.creator._id}`).emit(
+              "notification-count-updated"
+            );
+          }
         } catch (notifError) {
           // Non-blocking: notification creation failure shouldn't break the like
         }
+      }
+
+      // Invalidate post cache (likes changed)
+      invalidateCache("post", postId);
+      invalidateCache("posts"); // Also invalidate posts list (for mostLiked sorting)
+
+      // Emit real-time post like update to all users viewing this post
+      if (io) {
+        io.emit("post-liked", {
+          postId,
+          likes: normalizedLikesArray,
+          post: populatedPost,
+        });
       }
 
       res.json(populatedPost);
@@ -456,7 +679,16 @@ export default function PostRoutes(app) {
       }
 
       await dao.deletePost(postId);
-      res.json({ message: "Post deleted successfully by admin" });
+
+      // Invalidate post cache
+      invalidateCache("post", postId);
+      invalidateCache("posts"); // Also invalidate posts list
+
+      sendSuccessResponse(
+        res,
+        { message: "Post deleted successfully by admin" },
+        200
+      );
     } catch (error) {
       res.status(500).json({ error: "Failed to delete post" });
     }
@@ -467,18 +699,22 @@ export default function PostRoutes(app) {
     deletePostAdmin
   );
 
-  // GET /api/images/post/:imageId - Serve post image
+  // GET /api/images/post/:imageId - Serve post image (optimized)
   // Auth: Not required
   const getPostImage = async (req, res) => {
     try {
       const { imageId } = req.params;
       const post = await dao.findPostByImageId(imageId);
       if (!post || !post.imageData) {
-        res.status(404).json({ message: "Image not found" });
-        return;
+        return sendErrorResponse(
+          res,
+          "Image not found",
+          404,
+          ERROR_CODES.RESOURCE_NOT_FOUND
+        );
       }
       const imageBuffer = Buffer.from(post.imageData, "base64");
-      res.set("Content-Type", post.imageMimeType || "image/jpeg");
+      res.set("Content-Type", post.imageMimeType || "image/webp");
       res.set("Cache-Control", "public, max-age=31536000, immutable");
       // Allow cross-origin requests for images from any origin (for production)
       const origin = req.headers.origin;
@@ -494,10 +730,73 @@ export default function PostRoutes(app) {
       res.set("Cross-Origin-Resource-Policy", "cross-origin");
       res.send(imageBuffer);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch image" });
+      sendErrorResponse(
+        res,
+        "Failed to fetch image",
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
     }
   };
   app.get("/api/images/post/:imageId", getPostImage);
+
+  // GET /api/images/post/:imageId/thumbnail - Serve post thumbnail
+  // Auth: Not required
+  const getPostThumbnail = async (req, res) => {
+    try {
+      const { imageId } = req.params;
+      const post = await dao.findPostByImageId(imageId);
+      if (!post || !post.thumbnailData) {
+        // Fallback to full image if thumbnail not available
+        if (post && post.imageData) {
+          const imageBuffer = Buffer.from(post.imageData, "base64");
+          res.set("Content-Type", post.imageMimeType || "image/webp");
+          res.set("Cache-Control", "public, max-age=31536000, immutable");
+          const origin = req.headers.origin;
+          if (origin) {
+            res.set("Access-Control-Allow-Origin", origin);
+          } else {
+            const allowedOrigins = process.env.CLIENT_URL?.split(",") || [
+              "http://localhost:3000",
+            ];
+            res.set("Access-Control-Allow-Origin", allowedOrigins[0]);
+          }
+          res.set("Access-Control-Allow-Credentials", "true");
+          res.set("Cross-Origin-Resource-Policy", "cross-origin");
+          return res.send(imageBuffer);
+        }
+        return sendErrorResponse(
+          res,
+          "Thumbnail not found",
+          404,
+          ERROR_CODES.RESOURCE_NOT_FOUND
+        );
+      }
+      const thumbnailBuffer = Buffer.from(post.thumbnailData, "base64");
+      res.set("Content-Type", post.thumbnailMimeType || "image/webp");
+      res.set("Cache-Control", "public, max-age=31536000, immutable");
+      const origin = req.headers.origin;
+      if (origin) {
+        res.set("Access-Control-Allow-Origin", origin);
+      } else {
+        const allowedOrigins = process.env.CLIENT_URL?.split(",") || [
+          "http://localhost:3000",
+        ];
+        res.set("Access-Control-Allow-Origin", allowedOrigins[0]);
+      }
+      res.set("Access-Control-Allow-Credentials", "true");
+      res.set("Cross-Origin-Resource-Policy", "cross-origin");
+      res.send(thumbnailBuffer);
+    } catch (error) {
+      sendErrorResponse(
+        res,
+        "Failed to fetch thumbnail",
+        500,
+        ERROR_CODES.INTERNAL_ERROR
+      );
+    }
+  };
+  app.get("/api/images/post/:imageId/thumbnail", getPostThumbnail);
 
   return app;
 }

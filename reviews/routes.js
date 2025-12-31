@@ -9,7 +9,7 @@ import {
   validatePagination,
 } from "../middleware/validation.js";
 
-export default function ReviewRoutes(app) {
+export default function ReviewRoutes(app, io) {
   const dao = ReviewsDao();
   const notificationsDao = NotificationsDao();
   const postsDao = PostsDao();
@@ -57,15 +57,40 @@ export default function ReviewRoutes(app) {
         try {
           const post = await postsDao.findPostById(postId);
           if (post && post.creator && post.creator._id !== currentUser._id) {
-            await notificationsDao.createNotification({
+            const notification = await notificationsDao.createNotification({
               user: post.creator._id,
               actor: currentUser._id,
               type: "REVIEW",
               post: postId,
               review: newReview._id,
             });
+
+            // Populate notification before emitting
+            const populatedNotification =
+              await notificationsDao.findNotificationById(notification._id);
+
+            // Emit real-time notification to the post creator
+            if (io && populatedNotification) {
+              io.to(`user-${post.creator._id}`).emit(
+                "new-notification",
+                populatedNotification
+              );
+              io.to(`user-${post.creator._id}`).emit(
+                "notification-count-updated"
+              );
+            }
           }
-        } catch (notifError) {}
+
+          // Emit real-time review update to all users viewing this post
+          if (io) {
+            io.emit("new-review", {
+              postId,
+              review: populatedReview,
+            });
+          }
+        } catch (notifError) {
+          // Non-blocking: notification/real-time update failure shouldn't break review creation
+        }
       }
 
       res.json(populatedReview);
@@ -96,7 +121,12 @@ export default function ReviewRoutes(app) {
       res.status(500).json({ error: "Failed to fetch reviews" });
     }
   };
-  app.get("/api/reviews/post/:postId", validatePostId, validatePagination, getReviewsByPost);
+  app.get(
+    "/api/reviews/post/:postId",
+    validatePostId,
+    validatePagination,
+    getReviewsByPost
+  );
 
   // GET /api/reviews/external/:externalContentId - Get reviews for external content
   // Query params: ?limit=10&skip=0
@@ -113,7 +143,11 @@ export default function ReviewRoutes(app) {
       const limitNum = limit ? parseInt(limit) : 20; // Default limit of 20
       const skipNum = skip ? parseInt(skip) : 0;
 
-      const reviews = await dao.findReviewsByExternalContent(externalContentId, limitNum, skipNum);
+      const reviews = await dao.findReviewsByExternalContent(
+        externalContentId,
+        limitNum,
+        skipNum
+      );
       res.json({ documents: reviews });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch reviews" });

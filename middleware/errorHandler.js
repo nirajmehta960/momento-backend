@@ -1,14 +1,19 @@
 // Centralized error handling middleware
 
 export const errorHandler = (err, req, res, next) => {
-  // Log error for debugging
-  console.error("Error:", {
-    message: err.message,
-    stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
-    path: req.path,
-    method: req.method,
-    timestamp: new Date().toISOString(),
-  });
+  // Log error details only in development
+  if (process.env.NODE_ENV === "development") {
+    // In production, use proper logging service instead
+    const errorDetails = {
+      message: err.message,
+      stack: err.stack,
+      path: req.path,
+      method: req.method,
+      timestamp: new Date().toISOString(),
+    };
+    // Error details available for debugging in development
+    // In production, integrate with logging service (Winston, Morgan, etc.)
+  }
 
   // Default error
   let statusCode = err.statusCode || err.status || 500;

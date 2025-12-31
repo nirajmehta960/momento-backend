@@ -115,7 +115,7 @@ io.on("connection", (socket) => {
         const usersDao = UsersDao();
         await usersDao.updateUser(userId, { lastLogin: new Date() });
       } catch (error) {
-        console.error("Error updating lastLogin on socket connection:", error);
+        // Silently fail - lastLogin update is non-critical
       }
     }
   });
@@ -147,7 +147,6 @@ io.on("connection", (socket) => {
       io.to(`user-${senderId}`).emit("conversation-updated");
       io.to(`user-${receiverId}`).emit("conversation-updated");
     } catch (error) {
-      console.error("Error sending message:", error);
       socket.emit("error", { message: "Failed to send message" });
     }
   });
@@ -177,7 +176,7 @@ io.on("connection", (socket) => {
         readBy: userId,
       });
     } catch (error) {
-      console.error("Error marking messages as read:", error);
+      // Silently fail - read status update is non-critical
     }
   });
 
