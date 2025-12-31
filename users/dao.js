@@ -18,7 +18,7 @@ export default function UsersDao() {
 
   const findAllUsers = async () => {
     try {
-      return await model.find().select("-imageData");
+      return await model.find().select("-imageData").lean(); // Return plain JavaScript objects
     } catch (error) {
       throw error;
     }
@@ -26,7 +26,7 @@ export default function UsersDao() {
 
   const findUserById = async (id) => {
     try {
-      return await model.findById(id).select("-imageData");
+      return await model.findById(id).select("-imageData").lean(); // Return plain JavaScript object
     } catch (error) {
       throw error;
     }
@@ -39,7 +39,8 @@ export default function UsersDao() {
         .find({
           $or: [{ name: { $regex: regex } }, { username: { $regex: regex } }],
         })
-        .select("-imageData");
+        .select("-imageData")
+        .lean(); // Return plain JavaScript objects
     } catch (error) {
       throw error;
     }
@@ -47,7 +48,7 @@ export default function UsersDao() {
 
   const findUsersByRole = async (role) => {
     try {
-      return await model.find({ role }).select("-imageData");
+      return await model.find({ role }).select("-imageData").lean(); // Return plain JavaScript objects
     } catch (error) {
       throw error;
     }
@@ -55,7 +56,7 @@ export default function UsersDao() {
 
   const findUserByUsername = async (username) => {
     try {
-      return await model.findOne({ username });
+      return await model.findOne({ username }).lean(); // Return plain JavaScript object
     } catch (error) {
       throw error;
     }
@@ -63,7 +64,7 @@ export default function UsersDao() {
 
   const findUserByEmail = async (email) => {
     try {
-      return await model.findOne({ email });
+      return await model.findOne({ email }).lean(); // Return plain JavaScript object
     } catch (error) {
       throw error;
     }
@@ -149,7 +150,7 @@ export default function UsersDao() {
 
   const findUserByImageId = async (imageId) => {
     try {
-      return await model.findOne({ imageId });
+      return await model.findOne({ imageId }).lean(); // Return plain JavaScript object
     } catch (error) {
       throw error;
     }

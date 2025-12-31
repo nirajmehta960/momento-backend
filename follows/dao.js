@@ -45,7 +45,8 @@ export default function FollowsDao() {
     try {
       const follows = await model
         .find({ following: userId })
-        .populate("follower");
+        .populate("follower")
+        .lean(); // Return plain JavaScript objects
 
       return follows
         .map((follow) => follow.follower)
@@ -60,7 +61,8 @@ export default function FollowsDao() {
     try {
       const follows = await model
         .find({ follower: userId })
-        .populate("following");
+        .populate("following")
+        .lean(); // Return plain JavaScript objects
 
       return follows
         .map((follow) => follow.following)
@@ -91,13 +93,15 @@ export default function FollowsDao() {
       const following = await model
         .find({ follower: userId })
         .populate("following")
-        .select("following");
+        .select("following")
+        .lean(); // Return plain JavaScript objects
 
       // Get users who follow the current user
       const followers = await model
         .find({ following: userId })
         .populate("follower")
-        .select("follower");
+        .select("follower")
+        .lean(); // Return plain JavaScript objects
 
       // Combine both sets and remove duplicates
       const messagableUserIds = new Set();

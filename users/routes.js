@@ -205,7 +205,8 @@ export default function UserRoutes(app) {
       const currentUser = req.session["currentUser"];
       const isOwnProfile = currentUser && currentUser._id === userId;
 
-      const userResponse = user.toObject ? user.toObject() : { ...user };
+      // user is already a plain object (from .lean()), no need for toObject()
+      const userResponse = { ...user };
 
       if (!userResponse.lastLogin && userResponse.createdAt) {
         userResponse.lastLogin = userResponse.createdAt;

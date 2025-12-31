@@ -18,7 +18,8 @@ export default function ReviewsDao() {
       let query = model
         .find({ post: postId })
         .populate("user", "-imageData")
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .lean(); // Return plain JavaScript objects
 
       if (skip > 0) {
         query = query.skip(skip);
@@ -39,7 +40,8 @@ export default function ReviewsDao() {
       let query = model
         .find({ externalContentId: externalContentId })
         .populate("user", "-imageData")
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .lean(); // Return plain JavaScript objects
 
       if (skip > 0) {
         query = query.skip(skip);
@@ -57,7 +59,7 @@ export default function ReviewsDao() {
   // Get review by ID with populated user
   const findReviewById = async (reviewId) => {
     try {
-      return await model.findById(reviewId).populate("user", "-imageData");
+      return await model.findById(reviewId).populate("user", "-imageData").lean(); // Return plain JavaScript object
     } catch (error) {
       throw error;
     }
